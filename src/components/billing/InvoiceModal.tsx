@@ -96,6 +96,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-inner">
             {/* Store Header */}
             <div className="text-center pb-3 border-b border-dashed border-slate-300">
+              <img 
+                src="/logo.jpg" 
+                alt="Vintage Clothing Store" 
+                className="w-16 h-16 object-contain mx-auto mb-1.5"
+              />
               <h3 className="font-black text-sm text-slate-900 font-sans tracking-tight">
                 {settings.store_name || 'VINTAGE CLOTHING STORE'}
               </h3>

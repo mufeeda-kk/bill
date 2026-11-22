@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
-import { Smartphone, Check, AlertCircle, ArrowRight } from 'lucide-react';
+import { Check, AlertCircle, ArrowRight } from 'lucide-react';
 import { SHOP_PHONE_SLOTS } from '../../lib/deviceAuth';
 
 export const DeviceEnrollmentModal: React.FC = () => {
@@ -36,8 +36,12 @@ export const DeviceEnrollmentModal: React.FC = () => {
     <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden p-6 animate-in fade-in zoom-in-95">
         <div className="text-center pb-4 border-b border-slate-100">
-          <div className="w-12 h-12 bg-amber-500/20 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-amber-500/30">
-            <Smartphone className="w-6 h-6" />
+          <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-2.5 border border-slate-200 shadow-sm p-1.5 overflow-hidden">
+            <img 
+              src="/logo.jpg" 
+              alt="Vintage Clothing Store" 
+              className="w-full h-full object-contain"
+            />
           </div>
           <h2 className="text-lg font-black text-slate-900 tracking-tight">
             VINTAGE CLOTHING STORE

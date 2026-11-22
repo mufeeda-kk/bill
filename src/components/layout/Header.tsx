@@ -50,8 +50,12 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
           {/* Brand & Store Name */}
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-black text-lg shadow-inner">
-              V
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-white p-0.5 border border-amber-500/40 flex items-center justify-center shadow-inner overflow-hidden shrink-0">
+              <img 
+                src="/logo.jpg" 
+                alt="Vintage Clothing Store Logo" 
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
               <h1 className="text-base sm:text-lg font-black tracking-tight text-amber-100 flex items-center gap-2">
