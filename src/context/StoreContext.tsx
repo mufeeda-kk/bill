@@ -40,6 +40,8 @@ interface StoreContextType {
 
   // Cart & POS Billing
   cart: CartItem[];
+  isMobileCartOpen: boolean;
+  setIsMobileCartOpen: (open: boolean) => void;
   addToCart: (product: Product) => void;
   updateCartQty: (productId: string, quantity: number) => void;
   removeFromCart: (productId: string) => void;
@@ -112,6 +114,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [isMobileCartOpen, setIsMobileCartOpen] = useState<boolean>(false);
   const [cartDiscount, setCartDiscount] = useState<number>(0);
   const [customerPhone, setCustomerPhone] = useState<string>('');
   const [customerName, setCustomerName] = useState<string>('Walk-in Customer');
@@ -419,6 +422,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCustomerName('Walk-in Customer');
     setPaymentMethod('CASH');
     setAmountPaid(0);
+    setIsMobileCartOpen(false);
   };
 
   // Fast Checkout with Idempotency Key
@@ -546,6 +550,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addProduct,
         updateProduct,
         cart,
+        isMobileCartOpen,
+        setIsMobileCartOpen,
         addToCart,
         updateCartQty,
         removeFromCart,

@@ -11,7 +11,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentTab, onTabChange }) => {
-  const { cart } = useStore();
+  const { cart, isMobileCartOpen, setIsMobileCartOpen } = useStore();
 
   const desktopNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -71,25 +71,31 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onTabChange }) => {
             <span>Home</span>
           </button>
 
-          {/* 2. Billing (Central Hero) */}
+          {/* 2. Billing / Cart (Central Hero) */}
           <button
-            onClick={() => onTabChange('billing')}
-            className="flex flex-col items-center justify-center -mt-5 relative"
+            onClick={() => {
+              if (currentTab === 'billing' && cart.length > 0) {
+                setIsMobileCartOpen(!isMobileCartOpen);
+              } else {
+                onTabChange('billing');
+              }
+            }}
+            className="flex flex-col items-center justify-center -mt-6 relative"
           >
-            <div className={`w-13 h-13 rounded-full flex items-center justify-center shadow-lg border-2 border-slate-950 transition active:scale-95 ${
-              currentTab === 'billing' ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-400/50' : 'bg-amber-500 text-slate-950'
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-950 transition active:scale-90 relative ${
+              currentTab === 'billing' ? 'bg-amber-400 text-slate-950 ring-4 ring-amber-400/30' : 'bg-amber-500 text-slate-950 hover:bg-amber-400'
             }`}>
               <ShoppingCart className="w-6 h-6" />
               {cart.length > 0 && (
-                <span className="absolute top-0 right-1 bg-rose-600 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-black border-2 border-slate-950">
+                <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[11px] font-black min-w-[22px] h-[22px] px-1 rounded-full flex items-center justify-center border-2 border-slate-950 shadow-md animate-in zoom-in-75">
                   {cart.length}
                 </span>
               )}
             </div>
-            <span className={`text-[10px] font-black mt-1 uppercase ${
-              currentTab === 'billing' ? 'text-amber-400' : 'text-slate-300'
+            <span className={`text-[10px] font-black mt-1 uppercase tracking-tight ${
+              currentTab === 'billing' ? 'text-amber-400 font-black' : 'text-slate-300'
             }`}>
-              Billing
+              {cart.length > 0 ? `Cart (${cart.length})` : 'Billing'}
             </span>
           </button>
 

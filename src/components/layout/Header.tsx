@@ -12,7 +12,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
   const { 
     settings, currentDevice, isOnline, syncStatus, 
-    lastSyncTime, refreshData, cart 
+    lastSyncTime, refreshData, cart, setIsMobileCartOpen 
   } = useStore();
 
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
@@ -47,35 +47,35 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
           </div>
         )}
 
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-2.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2">
           {/* Brand & Store Name */}
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-white p-0.5 border border-amber-500/40 flex items-center justify-center shadow-inner overflow-hidden shrink-0">
+          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-white p-0.5 border border-amber-500/40 flex items-center justify-center shadow-inner overflow-hidden shrink-0">
               <img 
                 src="/logo.jpg" 
                 alt="Vintage Clothing Store Logo" 
                 className="w-full h-full object-contain"
               />
             </div>
-            <div>
-              <h1 className="text-base sm:text-lg font-black tracking-tight text-amber-100 flex items-center gap-2">
-                {settings.store_name || 'VINTAGE CLOTHING STORE'}
-                <span className="hidden sm:inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50">
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-lg font-black tracking-tight text-amber-100 flex items-center gap-1.5 truncate">
+                <span className="truncate">{settings.store_name || 'VINTAGE CLOTHING'}</span>
+                <span className="hidden sm:inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50 shrink-0">
                   POS
                 </span>
               </h1>
-              <p className="text-[11px] text-slate-400 hidden xs:block">
+              <p className="text-[10px] sm:text-[11px] text-slate-400 hidden xs:block truncate">
                 {settings.tagline || 'Exclusive Fashion'} • INR (₹)
               </p>
             </div>
           </div>
 
-          {/* Sync Status & Device Badge */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
+          {/* Sync Status & Action Buttons */}
+          <div className="flex items-center space-x-1.5 sm:space-x-3 shrink-0">
             {/* Database Connection Button */}
             <button
               onClick={() => setIsDbModalOpen(true)}
-              className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition ${
+              className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-semibold border transition ${
                 isSupabaseConfigured
                   ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                   : 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse'
@@ -88,9 +88,9 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
               </span>
             </button>
 
-            {/* Device Badge */}
+            {/* Device Badge (Desktop only) */}
             {currentDevice && (
-              <div className="hidden md:flex items-center space-x-1.5 bg-slate-800 border border-slate-700 px-2.5 py-1 rounded-full text-xs text-slate-300">
+              <div className="hidden lg:flex items-center space-x-1.5 bg-slate-800 border border-slate-700 px-2.5 py-1 rounded-full text-xs text-slate-300">
                 <Smartphone className="w-3.5 h-3.5 text-amber-400" />
                 <span className="font-medium max-w-[120px] truncate">{currentDevice.name}</span>
               </div>
@@ -98,7 +98,7 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
 
             {/* Realtime Live Sync Status */}
             <div 
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
+              className={`flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium border ${
                 syncStatus === 'connected' 
                   ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50' 
                   : syncStatus === 'connecting'
@@ -122,30 +122,36 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
             {/* Manual Refresh Button */}
             <button
               onClick={() => refreshData()}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition active:scale-95"
+              className="p-1 sm:p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition active:scale-95"
               title="Refresh All Data"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             {/* Settings Button */}
             <button
               onClick={() => onNavigate('settings')}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition active:scale-95"
+              className="p-1 sm:p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition active:scale-95"
               title="Store Settings & Device Auth"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
-            {/* Quick POS Billing Button */}
+            {/* POS Billing Cart Button - Clean Responsive Behavior */}
             <button
-              onClick={() => onNavigate('billing')}
-              className="flex items-center space-x-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs sm:text-sm shadow-sm transition active:scale-95"
+              onClick={() => {
+                onNavigate('billing');
+                if (cart.length > 0) {
+                  setIsMobileCartOpen(true);
+                }
+              }}
+              className="relative flex items-center space-x-1 sm:space-x-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black px-2.5 sm:px-3 py-1.5 rounded-xl text-xs sm:text-sm shadow-sm transition shrink-0"
+              title="POS Billing"
             >
-              <ShoppingBag className="w-4 h-4" />
-              <span>POS Billing</span>
+              <ShoppingBag className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">POS Billing</span>
               {cart.length > 0 && (
-                <span className="bg-slate-950 text-amber-300 text-[11px] px-1.5 py-0.2 rounded-full font-black ml-1">
+                <span className="bg-slate-950 text-amber-300 text-[11px] px-1.5 py-0.2 rounded-full font-black">
                   {cart.length}
                 </span>
               )}
