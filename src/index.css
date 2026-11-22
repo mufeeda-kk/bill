@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-slate-100 text-slate-900 font-sans antialiased;
+    overscroll-behavior-y: none;
+  }
+}
+
+/* Custom Utilities for Retail POS */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Print styles for 58mm / 80mm POS Thermal Receipt Printers & A4 */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-invoice, .printable-invoice * {
+    visibility: visible;
+  }
+  .printable-invoice {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: white !important;
+    color: black !important;
+  }
+  header, nav, button, .no-print {
+    display: none !important;
+  }
+}
