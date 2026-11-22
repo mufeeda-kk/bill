@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
-import { Smartphone, ShieldCheck, Download, Upload, CheckCircle, Store, LogOut, AlertTriangle } from 'lucide-react';
+import { Smartphone, ShieldCheck, Download, Upload, CheckCircle, Store, LogOut, AlertTriangle, Database } from 'lucide-react';
 import { storeService } from '../../services/storeService';
 import { formatKolkataDateTime } from '../../lib/formatters';
+import { isSupabaseConfigured, getSupabaseCredentials } from '../../lib/supabase';
+import { DatabaseConfigModal } from './DatabaseConfigModal';
 
 export const SettingsScreen: React.FC = () => {
   const { 
     settings, updateSettings, authorizedDevices, 
     revokeDevice, currentDevice, logoutDevice, refreshData 
   } = useStore();
+
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
+  const currentCreds = getSupabaseCredentials();
 
   const [storeName, setStoreName] = useState(settings.store_name || 'VINTAGE CLOTHING STORE');
   const [tagline, setTagline] = useState(settings.tagline || 'Exclusive Men & Women Fashion');
@@ -98,6 +103,53 @@ export const SettingsScreen: React.FC = () => {
           <span className="font-bold">{backupNotice}</span>
         </div>
       )}
+
+      {/* Central Database Connection Card */}
+      <div className={`p-4 rounded-xl border transition shadow-sm ${
+        isSupabaseConfigured
+          ? 'bg-emerald-950/20 border-emerald-500/40'
+          : 'bg-amber-500/10 border-amber-500/40'
+      }`}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+              isSupabaseConfigured
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                : 'bg-amber-500/20 text-amber-500 border border-amber-500/40'
+            }`}>
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="font-bold text-slate-900 text-sm">Central Store Database (Supabase)</h3>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  isSupabaseConfigured
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                }`}>
+                  {isSupabaseConfigured ? 'CONNECTED & SYNCING' : 'NOT CONNECTED (LOCAL ISOLATION)'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isSupabaseConfigured
+                  ? `Central PostgreSQL active: ${currentCreds.url.replace(/^https:\/\//, '').slice(0, 24)}... (All 3 phones share same bills & stock)`
+                  : '⚠️ Devices currently operate as independent islands! Connect Supabase to sync bills across all 3 shop phones.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsDbModalOpen(true)}
+            className={`w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm ${
+              isSupabaseConfigured
+                ? 'bg-slate-900 hover:bg-slate-800 text-white'
+                : 'bg-amber-500 hover:bg-amber-600 text-slate-950 font-black'
+            }`}
+          >
+            {isSupabaseConfigured ? 'Manage Connection' : 'Connect Central Database'}
+          </button>
+        </div>
+      </div>
 
       {/* Grid: Store Info & Device Management */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -335,6 +387,12 @@ export const SettingsScreen: React.FC = () => {
           </p>
         </div>
       </div>
+
+      <DatabaseConfigModal
+        isOpen={isDbModalOpen}
+        onClose={() => setIsDbModalOpen(false)}
+        onConnected={() => refreshData()}
+      />
     </div>
   );
 };

@@ -1,14 +1,12 @@
 -- ===================================================================
 -- VINTAGE CLOTHING STORE - COMPLETE PRODUCTION DATABASE SCHEMA (POSTGRESQL)
 -- Includes: FIFO Stock Batches, Atomic POS Billing, Idempotency, 
---           Full Stock Movement Audit, Profit/Loss, Device Authorization, RLS
+--           Full Stock Movement Audit, Profit/Loss, Device Authorization, 
+--           SECURITY DEFINER RPCs, RLS, and Realtime Publication
 -- ===================================================================
 
 -- Enable pgcrypto for UUID generation
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- Set Timezone to Asia/Kolkata
-ALTER DATABASE postgres SET timezone TO 'Asia/Kolkata';
 
 -- Clean existing schema if necessary (controlled)
 DROP FUNCTION IF EXISTS create_bill_atomic(jsonb);
@@ -17,6 +15,9 @@ DROP FUNCTION IF EXISTS add_stock_purchase_atomic(jsonb);
 DROP FUNCTION IF EXISTS adjust_stock_atomic(jsonb);
 DROP FUNCTION IF EXISTS get_dashboard_metrics(timestamptz, timestamptz);
 DROP FUNCTION IF EXISTS get_profit_loss_report(timestamptz, timestamptz, text);
+DROP FUNCTION IF EXISTS enroll_device(text, text, text, text);
+DROP FUNCTION IF EXISTS generate_invoice_number();
+DROP FUNCTION IF EXISTS generate_purchase_number();
 
 -- -------------------------------------------------------------------
 -- 1. STORE SETTINGS
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS store_settings (
     store_name TEXT NOT NULL DEFAULT 'VINTAGE CLOTHING STORE',
     tagline TEXT DEFAULT 'Exclusive Men & Women Fashion',
     phone TEXT DEFAULT '+91 98765 43210',
-    address TEXT DEFAULT 'Market Road, Kerala, India',
+    address TEXT DEFAULT 'Shop #4, Market Road, Kerala, India',
     upi_id TEXT DEFAULT 'vintageclothing@upi',
     currency_symbol TEXT DEFAULT '₹',
     invoice_prefix TEXT DEFAULT 'VCS',
@@ -199,7 +200,7 @@ CREATE TABLE IF NOT EXISTS bill_items (
     sku TEXT NOT NULL,
     quantity INT NOT NULL CHECK (quantity > 0),
     unit_selling_price NUMERIC(12, 2) NOT NULL CHECK (unit_selling_price >= 0),
-    unit_cost_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00, -- weighted or average for the line
+    unit_cost_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     item_discount NUMERIC(12, 2) NOT NULL DEFAULT 0.00 CHECK (item_discount >= 0),
     line_total NUMERIC(12, 2) NOT NULL CHECK (line_total >= 0),
     line_cost NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
@@ -210,7 +211,6 @@ CREATE TABLE IF NOT EXISTS bill_items (
 CREATE INDEX IF NOT EXISTS idx_bill_items_bill ON bill_items(bill_id);
 CREATE INDEX IF NOT EXISTS idx_bill_items_prod ON bill_items(product_id);
 
--- FIFO Batch allocation audit per bill item
 CREATE TABLE IF NOT EXISTS bill_item_batch_allocations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     bill_item_id UUID NOT NULL REFERENCES bill_items(id) ON DELETE CASCADE,
@@ -293,11 +293,15 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 
 -- ===================================================================
 -- DATABASE RPC FUNCTIONS: SECURE, CONCURRENT & ATOMIC TRANSACTIONS
+-- ALL MARKED AS SECURITY DEFINER WITH SET search_path = public
 -- ===================================================================
 
 -- 1. Helper function: Generate Daily Sequence Invoice Number (Format: VCS-YYYYMMDD-0001)
 CREATE OR REPLACE FUNCTION generate_invoice_number()
-RETURNS TEXT AS $$
+RETURNS TEXT 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_prefix TEXT;
     v_date_part TEXT;
@@ -309,14 +313,12 @@ BEGIN
     
     v_date_part := to_char(timezone('Asia/Kolkata'::text, now()), 'YYYYMMDD');
     
-    -- Count bills created today with this prefix
     SELECT count(*) + 1 INTO v_count
     FROM bills
     WHERE invoice_number LIKE v_prefix || '-' || v_date_part || '-%';
     
     v_invoice := v_prefix || '-' || v_date_part || '-' || lpad(v_count::text, 4, '0');
     
-    -- Safety check against existing
     WHILE EXISTS (SELECT 1 FROM bills WHERE invoice_number = v_invoice) LOOP
         v_count := v_count + 1;
         v_invoice := v_prefix || '-' || v_date_part || '-' || lpad(v_count::text, 4, '0');
@@ -328,7 +330,10 @@ $$ LANGUAGE plpgsql;
 
 -- 2. Helper function: Generate Purchase Number (Format: PUR-YYYYMMDD-0001)
 CREATE OR REPLACE FUNCTION generate_purchase_number()
-RETURNS TEXT AS $$
+RETURNS TEXT 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_date_part TEXT;
     v_count INT;
@@ -350,7 +355,10 @@ $$ LANGUAGE plpgsql;
 
 -- 3. CORE ATOMIC BILLING FUNCTION WITH FIFO INVENTORY & IDEMPOTENCY
 CREATE OR REPLACE FUNCTION create_bill_atomic(p_bill_data JSONB)
-RETURNS JSONB AS $$
+RETURNS JSONB 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_idempotency_key TEXT;
     v_existing_bill RECORD;
@@ -397,7 +405,6 @@ BEGIN
     IF v_idempotency_key IS NOT NULL AND v_idempotency_key <> '' THEN
         SELECT * INTO v_existing_bill FROM bills WHERE idempotency_key = v_idempotency_key;
         IF FOUND THEN
-            -- Already processed, return existing bill data directly
             SELECT jsonb_build_object(
                 'success', true,
                 'is_idempotent_duplicate', true,
@@ -425,11 +432,18 @@ BEGIN
     v_balance_due := COALESCE((p_bill_data->>'balance_due')::NUMERIC(12, 2), 0.00);
     v_payment_status := COALESCE(p_bill_data->>'payment_status', 'PAID');
     v_notes := p_bill_data->>'notes';
-    v_device_id := (p_bill_data->>'device_id')::UUID;
+    
+    -- Safe device_id parsing
+    BEGIN
+        v_device_id := (p_bill_data->>'device_id')::UUID;
+    EXCEPTION WHEN OTHERS THEN
+        v_device_id := NULL;
+    END;
+
     v_items := p_bill_data->'items';
     v_payments := p_bill_data->'payments';
 
-    IF jsonb_array_length(v_items) = 0 THEN
+    IF v_items IS NULL OR jsonb_array_length(v_items) = 0 THEN
         RAISE EXCEPTION 'Bill must contain at least one item';
     END IF;
 
@@ -639,7 +653,10 @@ $$ LANGUAGE plpgsql;
 
 -- 4. ATOMIC STOCK PURCHASE MODULE (Creates Batches, Updates Stock & Pricing)
 CREATE OR REPLACE FUNCTION add_stock_purchase_atomic(p_purchase_data JSONB)
-RETURNS JSONB AS $$
+RETURNS JSONB 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_purchase_id UUID;
     v_purchase_number TEXT;
@@ -669,10 +686,16 @@ BEGIN
     v_purchase_date := COALESCE((p_purchase_data->>'purchase_date')::TIMESTAMPTZ, timezone('Asia/Kolkata'::text, now()));
     v_total_amount := (p_purchase_data->>'total_amount')::NUMERIC(12, 2);
     v_notes := p_purchase_data->>'notes';
-    v_device_id := (p_purchase_data->>'device_id')::UUID;
+    
+    BEGIN
+        v_device_id := (p_purchase_data->>'device_id')::UUID;
+    EXCEPTION WHEN OTHERS THEN
+        v_device_id := NULL;
+    END;
+
     v_items := p_purchase_data->'items';
 
-    IF jsonb_array_length(v_items) = 0 THEN
+    IF v_items IS NULL OR jsonb_array_length(v_items) = 0 THEN
         RAISE EXCEPTION 'Purchase must contain at least one product item';
     END IF;
 
@@ -750,7 +773,10 @@ CREATE OR REPLACE FUNCTION cancel_or_return_bill_atomic(
     p_reason TEXT,
     p_device_id TEXT
 )
-RETURNS JSONB AS $$
+RETURNS JSONB 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_bill RECORD;
     v_item RECORD;
@@ -759,7 +785,11 @@ DECLARE
     v_dev_uuid UUID := NULL;
 BEGIN
     IF p_device_id IS NOT NULL AND p_device_id <> '' THEN
-        v_dev_uuid := p_device_id::UUID;
+        BEGIN
+            v_dev_uuid := p_device_id::UUID;
+        EXCEPTION WHEN OTHERS THEN
+            v_dev_uuid := NULL;
+        END;
     END IF;
 
     -- Lock bill
@@ -827,7 +857,10 @@ $$ LANGUAGE plpgsql;
 
 -- 6. ATOMIC MANUAL STOCK ADJUSTMENT (Damage, Lost, Physical count)
 CREATE OR REPLACE FUNCTION adjust_stock_atomic(p_adjustment_data JSONB)
-RETURNS JSONB AS $$
+RETURNS JSONB 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_product_id UUID;
     v_adjustment_type TEXT;
@@ -840,10 +873,15 @@ DECLARE
     v_qty_change INT;
 BEGIN
     v_product_id := (p_adjustment_data->>'product_id')::UUID;
-    v_adjustment_type := p_adjustment_data->>'adjustment_type'; -- 'IN', 'OUT', 'DAMAGE', 'LOST', 'PHYSICAL_COUNT'
+    v_adjustment_type := p_adjustment_data->>'adjustment_type';
     v_quantity := (p_adjustment_data->>'quantity')::INT;
     v_reason := p_adjustment_data->>'reason';
-    v_device_id := (p_adjustment_data->>'device_id')::UUID;
+    
+    BEGIN
+        v_device_id := (p_adjustment_data->>'device_id')::UUID;
+    EXCEPTION WHEN OTHERS THEN
+        v_device_id := NULL;
+    END;
 
     SELECT * INTO v_product FROM products WHERE id = v_product_id FOR UPDATE;
     IF NOT FOUND THEN
@@ -914,7 +952,10 @@ CREATE OR REPLACE FUNCTION get_dashboard_metrics(
     p_start_date TIMESTAMPTZ,
     p_end_date TIMESTAMPTZ
 )
-RETURNS JSONB AS $$
+RETURNS JSONB 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_total_sales NUMERIC(12, 2) := 0;
     v_total_bills INT := 0;
@@ -929,7 +970,6 @@ DECLARE
     v_low_stock_count INT := 0;
     v_out_of_stock_count INT := 0;
 BEGIN
-    -- Sales & Profit within period (excluding cancelled bills)
     SELECT 
         COALESCE(SUM(grand_total), 0),
         COUNT(*),
@@ -941,7 +981,6 @@ BEGIN
       AND bill_date >= p_start_date
       AND bill_date <= p_end_date;
 
-    -- Expenses within period
     SELECT COALESCE(SUM(amount), 0)
     INTO v_total_expenses
     FROM expenses
@@ -950,7 +989,6 @@ BEGIN
 
     v_net_profit := v_gross_profit - v_total_expenses;
 
-    -- Current Inventory Status
     SELECT 
         COUNT(*),
         COALESCE(SUM(available_stock), 0),
@@ -990,14 +1028,15 @@ CREATE OR REPLACE FUNCTION get_profit_loss_report(
     p_end_date TIMESTAMPTZ,
     p_group_by TEXT DEFAULT 'day'
 )
-RETURNS JSONB AS $$
+RETURNS JSONB 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_summary JSONB;
-    v_details JSONB;
     v_expenses JSONB;
     v_category_breakdown JSONB;
 BEGIN
-    -- Overall Summary
     SELECT jsonb_build_object(
         'total_revenue', COALESCE(SUM(grand_total), 0),
         'total_cogs', COALESCE(SUM(total_cost_cogs), 0),
@@ -1010,7 +1049,6 @@ BEGIN
       AND bill_date >= p_start_date
       AND bill_date <= p_end_date;
 
-    -- Expense Breakdown
     SELECT jsonb_agg(jsonb_build_object(
         'category', category,
         'total_amount', SUM(amount),
@@ -1020,7 +1058,6 @@ BEGIN
     WHERE expense_date >= p_start_date AND expense_date <= p_end_date
     GROUP BY category;
 
-    -- Category-wise Profitability
     SELECT jsonb_agg(row_data) INTO v_category_breakdown
     FROM (
         SELECT 
@@ -1055,7 +1092,10 @@ CREATE OR REPLACE FUNCTION enroll_device(
     p_model_info TEXT,
     p_passcode TEXT
 )
-RETURNS JSONB AS $$
+RETURNS JSONB 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
     v_correct_passcode TEXT;
     v_max_devices INT;
@@ -1110,7 +1150,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ===================================================================
--- ROW LEVEL SECURITY (RLS) & REALTIME CONFIGURATION
+-- ROW LEVEL SECURITY (RLS), REALTIME & GRANTS
 -- ===================================================================
 
 -- Enable RLS on all tables
@@ -1146,8 +1186,9 @@ CREATE POLICY "Public Read Settings" ON store_settings FOR SELECT USING (true);
 CREATE POLICY "Public Read Authorized Devices" ON authorized_devices FOR SELECT USING (true);
 CREATE POLICY "Public Read Returns" ON returns FOR SELECT USING (true);
 CREATE POLICY "Public Read Return Items" ON return_items FOR SELECT USING (true);
+CREATE POLICY "Public Read Audit Logs" ON audit_logs FOR SELECT USING (true);
 
--- Product Management Writes
+-- Product Management Direct Writes
 CREATE POLICY "Public Insert Products" ON products FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public Update Products" ON products FOR UPDATE USING (true);
 
@@ -1160,6 +1201,24 @@ CREATE POLICY "Public Delete Expenses" ON expenses FOR DELETE USING (true);
 
 -- Settings Update
 CREATE POLICY "Public Update Settings" ON store_settings FOR UPDATE USING (true);
+CREATE POLICY "Public Update Authorized Devices" ON authorized_devices FOR UPDATE USING (true);
+
+-- Grants to public roles
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
+
+-- Set Replica Identity Full for Realtime Broadcast completeness
+ALTER TABLE products REPLICA IDENTITY FULL;
+ALTER TABLE bills REPLICA IDENTITY FULL;
+ALTER TABLE bill_items REPLICA IDENTITY FULL;
+ALTER TABLE stock_movements REPLICA IDENTITY FULL;
+ALTER TABLE stock_purchases REPLICA IDENTITY FULL;
+ALTER TABLE stock_batches REPLICA IDENTITY FULL;
+ALTER TABLE expenses REPLICA IDENTITY FULL;
+ALTER TABLE store_settings REPLICA IDENTITY FULL;
+ALTER TABLE authorized_devices REPLICA IDENTITY FULL;
 
 -- Enable Supabase Realtime Publication for Live Synchronization across 3 phones
 BEGIN;
@@ -1170,12 +1229,14 @@ BEGIN;
     bill_items, 
     stock_movements, 
     stock_purchases, 
+    stock_batches,
     expenses, 
-    store_settings;
+    store_settings,
+    authorized_devices;
 COMMIT;
 
 -- ===================================================================
--- SEED INITIAL STORE SETTINGS & ESSENTIAL CATEGORIES
+-- SEED INITIAL STORE SETTINGS, CATEGORIES, AND INITIAL MERCHANDISE
 -- ===================================================================
 INSERT INTO store_settings (
     store_name, tagline, phone, address, upi_id, currency_symbol, invoice_prefix, enrollment_passcode, max_authorized_devices
@@ -1199,3 +1260,82 @@ INSERT INTO categories (name, slug, description, display_order) VALUES
 ('Jackets & Outerwear', 'jackets-outerwear', 'Denim jackets, hoodies, and blazers', 5),
 ('Accessories', 'accessories', 'Belts, caps, socks, and accessories', 6)
 ON CONFLICT (slug) DO NOTHING;
+
+-- Seed initial products and initial batches into central DB
+DO $$
+DECLARE
+  v_cat_shirts UUID;
+  v_cat_jeans UUID;
+  v_cat_tees UUID;
+  v_cat_dresses UUID;
+  v_cat_jackets UUID;
+  v_cat_acc UUID;
+  v_prod_id UUID;
+BEGIN
+  SELECT id INTO v_cat_shirts FROM categories WHERE slug = 'shirts-tops' LIMIT 1;
+  SELECT id INTO v_cat_jeans FROM categories WHERE slug = 'jeans-trousers' LIMIT 1;
+  SELECT id INTO v_cat_tees FROM categories WHERE slug = 't-shirts-polos' LIMIT 1;
+  SELECT id INTO v_cat_dresses FROM categories WHERE slug = 'dresses-kurtis' LIMIT 1;
+  SELECT id INTO v_cat_jackets FROM categories WHERE slug = 'jackets-outerwear' LIMIT 1;
+  SELECT id INTO v_cat_acc FROM categories WHERE slug = 'accessories' LIMIT 1;
+
+  -- 1. Check Cotton Shirt
+  IF NOT EXISTS (SELECT 1 FROM products WHERE sku = 'VCS-SHI-001') THEN
+    INSERT INTO products (name, sku, category_id, description, current_selling_price, current_cost_price, available_stock, low_stock_threshold, is_active)
+    VALUES ('Vintage Check Cotton Shirt', 'VCS-SHI-001', v_cat_shirts, '100% Breathable cotton casual checkered shirt', 999.00, 450.00, 18, 5, true)
+    RETURNING id INTO v_prod_id;
+
+    INSERT INTO stock_batches (product_id, batch_number, initial_quantity, remaining_quantity, unit_cost, selling_price, received_date, is_depleted)
+    VALUES (v_prod_id, 'BATCH-INIT-001', 18, 18, 450.00, 999.00, timezone('Asia/Kolkata'::text, now()), false);
+  END IF;
+
+  -- 2. Slim Fit Denim Jeans
+  IF NOT EXISTS (SELECT 1 FROM products WHERE sku = 'VCS-JEA-002') THEN
+    INSERT INTO products (name, sku, category_id, description, current_selling_price, current_cost_price, available_stock, low_stock_threshold, is_active)
+    VALUES ('Slim Fit Denim Jeans', 'VCS-JEA-002', v_cat_jeans, 'Stretchable vintage wash blue denim', 1499.00, 750.00, 12, 4, true)
+    RETURNING id INTO v_prod_id;
+
+    INSERT INTO stock_batches (product_id, batch_number, initial_quantity, remaining_quantity, unit_cost, selling_price, received_date, is_depleted)
+    VALUES (v_prod_id, 'BATCH-INIT-002', 12, 12, 750.00, 1499.00, timezone('Asia/Kolkata'::text, now()), false);
+  END IF;
+
+  -- 3. Classic Vintage Polo Tee
+  IF NOT EXISTS (SELECT 1 FROM products WHERE sku = 'VCS-TSH-003') THEN
+    INSERT INTO products (name, sku, category_id, description, current_selling_price, current_cost_price, available_stock, low_stock_threshold, is_active)
+    VALUES ('Classic Vintage Polo Tee', 'VCS-TSH-003', v_cat_tees, 'Premium pique cotton collar t-shirt', 699.00, 280.00, 25, 6, true)
+    RETURNING id INTO v_prod_id;
+
+    INSERT INTO stock_batches (product_id, batch_number, initial_quantity, remaining_quantity, unit_cost, selling_price, received_date, is_depleted)
+    VALUES (v_prod_id, 'BATCH-INIT-003', 25, 25, 280.00, 699.00, timezone('Asia/Kolkata'::text, now()), false);
+  END IF;
+
+  -- 4. Retro Corduroy Overshirt
+  IF NOT EXISTS (SELECT 1 FROM products WHERE sku = 'VCS-SHI-004') THEN
+    INSERT INTO products (name, sku, category_id, description, current_selling_price, current_cost_price, available_stock, low_stock_threshold, is_active)
+    VALUES ('Retro Corduroy Overshirt', 'VCS-SHI-004', v_cat_shirts, 'Heavyweight ribbed corduroy autumn jacket-shirt', 1799.00, 850.00, 8, 3, true)
+    RETURNING id INTO v_prod_id;
+
+    INSERT INTO stock_batches (product_id, batch_number, initial_quantity, remaining_quantity, unit_cost, selling_price, received_date, is_depleted)
+    VALUES (v_prod_id, 'BATCH-INIT-004', 8, 8, 850.00, 1799.00, timezone('Asia/Kolkata'::text, now()), false);
+  END IF;
+
+  -- 5. Floral Bohemian Summer Dress
+  IF NOT EXISTS (SELECT 1 FROM products WHERE sku = 'VCS-DRE-005') THEN
+    INSERT INTO products (name, sku, category_id, description, current_selling_price, current_cost_price, available_stock, low_stock_threshold, is_active)
+    VALUES ('Floral Bohemian Summer Dress', 'VCS-DRE-005', v_cat_dresses, 'Lightweight rayon vintage print midi dress', 1299.00, 520.00, 10, 3, true)
+    RETURNING id INTO v_prod_id;
+
+    INSERT INTO stock_batches (product_id, batch_number, initial_quantity, remaining_quantity, unit_cost, selling_price, received_date, is_depleted)
+    VALUES (v_prod_id, 'BATCH-INIT-005', 10, 10, 520.00, 1299.00, timezone('Asia/Kolkata'::text, now()), false);
+  END IF;
+
+  -- 6. Distressed Leather Belt
+  IF NOT EXISTS (SELECT 1 FROM products WHERE sku = 'VCS-ACC-006') THEN
+    INSERT INTO products (name, sku, category_id, description, current_selling_price, current_cost_price, available_stock, low_stock_threshold, is_active)
+    VALUES ('Vintage Distressed Leather Belt', 'VCS-ACC-006', v_cat_acc, 'Full-grain genuine leather with brass antique buckle', 499.00, 180.00, 15, 5, true)
+    RETURNING id INTO v_prod_id;
+
+    INSERT INTO stock_batches (product_id, batch_number, initial_quantity, remaining_quantity, unit_cost, selling_price, received_date, is_depleted)
+    VALUES (v_prod_id, 'BATCH-INIT-006', 15, 15, 180.00, 499.00, timezone('Asia/Kolkata'::text, now()), false);
+  END IF;
+END $$;
