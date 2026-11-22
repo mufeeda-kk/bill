@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
-import { WifiOff, Smartphone, RefreshCw, ShoppingBag, Database, AlertCircle } from 'lucide-react';
+import { WifiOff, Smartphone, RefreshCw, ShoppingBag, Database, AlertCircle, Settings } from 'lucide-react';
 import { formatKolkataTime } from '../../lib/formatters';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { DatabaseConfigModal } from '../settings/DatabaseConfigModal';
@@ -122,6 +122,15 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
               title="Refresh All Data"
             >
               <RefreshCw className="w-4 h-4" />
+            </button>
+
+            {/* Settings Button */}
+            <button
+              onClick={() => onNavigate('settings')}
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition active:scale-95"
+              title="Store Settings & Device Auth"
+            >
+              <Settings className="w-4 h-4" />
             </button>
 
             {/* Quick POS Billing Button */}

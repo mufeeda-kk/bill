@@ -6,10 +6,9 @@ import { DashboardScreen } from './components/dashboard/DashboardScreen';
 import { BillingScreen } from './components/billing/BillingScreen';
 import { ProductScreen } from './components/products/ProductScreen';
 import { InventoryScreen } from './components/inventory/InventoryScreen';
-import { StockPurchaseScreen } from './components/stock/StockPurchaseScreen';
 import { BillHistoryScreen } from './components/bills/BillHistoryScreen';
+import { ModelSalesReportScreen } from './components/reports/ModelSalesReportScreen';
 import { ProfitLossScreen } from './components/profitloss/ProfitLossScreen';
-import { ExpenseScreen } from './components/expenses/ExpenseScreen';
 import { SettingsScreen } from './components/settings/SettingsScreen';
 import { InvoiceModal } from './components/billing/InvoiceModal';
 import { DeviceEnrollmentModal } from './components/auth/DeviceEnrollmentModal';
@@ -30,7 +29,7 @@ export const App: React.FC = () => {
       {/* Top Application Header */}
       <Header onNavigate={(tab) => setCurrentTab(tab)} />
 
-      {/* Top/Bottom Navigation Bar */}
+      {/* Top / Bottom Navigation Bar */}
       <Navbar currentTab={currentTab} onTabChange={(tab) => setCurrentTab(tab)} />
 
       {/* Main Screen Container */}
@@ -45,7 +44,7 @@ export const App: React.FC = () => {
         {currentTab === 'billing' && (
           <BillingScreen
             onBillSuccess={() => {
-              // lastCompletedBill in StoreContext triggers InvoiceModal automatically
+              // lastCompletedBill triggers InvoiceModal automatically
             }}
           />
         )}
@@ -54,17 +53,15 @@ export const App: React.FC = () => {
 
         {currentTab === 'inventory' && <InventoryScreen />}
 
-        {currentTab === 'stock-purchase' && <StockPurchaseScreen />}
-
         {currentTab === 'bills' && (
           <BillHistoryScreen
             onSelectBill={(b) => setViewingBill(b)}
           />
         )}
 
-        {currentTab === 'profit-loss' && <ProfitLossScreen />}
+        {currentTab === 'model-sales' && <ModelSalesReportScreen />}
 
-        {currentTab === 'expenses' && <ExpenseScreen />}
+        {currentTab === 'profit-loss' && <ProfitLossScreen />}
 
         {currentTab === 'settings' && <SettingsScreen />}
       </main>

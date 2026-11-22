@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { 
-  TrendingUp, ShoppingBag, Receipt, DollarSign, 
-  Boxes, AlertTriangle, XCircle, 
-  Truck, Shirt, ArrowRight, Share2 
+  ShoppingBag, Smartphone, CreditCard, 
+  Shirt, Boxes, AlertTriangle, ArrowRight, Plus, 
+  Receipt, Share2, Eye 
 } from 'lucide-react';
-import { formatCurrency, formatKolkataTime } from '../../lib/formatters';
+import { formatCurrency, formatKolkataDateTime } from '../../lib/formatters';
 import { openWhatsAppDirect } from '../../lib/whatsapp';
 import { Bill } from '../../types';
 
@@ -17,8 +17,7 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, onSelectBill }) => {
   const { 
     dashboardMetrics, dateRange, setDateRange, 
-    customStartDate, setCustomStartDate, customEndDate, setCustomEndDate,
-    bills, settings 
+    bills, products, settings 
   } = useStore();
 
   const m = dashboardMetrics || {
@@ -35,39 +34,41 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
     total_stock_value: 0,
     low_stock_count: 0,
     out_of_stock_count: 0,
+    today_cash: 0,
+    today_gpay: 0,
+    today_card: 0,
   };
 
   // Recent 5 bills
-  const recentBills = bills.slice(0, 5);
+  const recentBills = useMemo(() => bills.slice(0, 5), [bills]);
 
   return (
     <div className="space-y-4 pb-20 md:pb-6">
-      {/* Top Banner & Date Filter Bar */}
+      {/* Welcome & Date Filter Bar */}
       <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-            Shop Performance Overview
+            Daily Shop Overview
           </h2>
           <p className="text-xs text-slate-500">
-            Real-time sales, inventory value & profit/loss
+            Real-time daily sales, payment collection breakdown & stock
           </p>
         </div>
 
         {/* Date Filter Tabs */}
-        <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl overflow-x-auto scrollbar-none self-start sm:self-auto">
+        <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold self-start sm:self-auto overflow-x-auto scrollbar-none">
           {[
             { id: 'today', label: 'Today' },
             { id: 'yesterday', label: 'Yesterday' },
             { id: 'week', label: '7 Days' },
             { id: 'month', label: 'This Month' },
-            { id: 'custom', label: 'Custom' },
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setDateRange(tab.id as 'today' | 'yesterday' | 'week' | 'month' | 'custom')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+              onClick={() => setDateRange(tab.id as 'today' | 'yesterday' | 'week' | 'month')}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
                 dateRange === tab.id
-                  ? 'bg-white text-slate-900 shadow-sm'
+                  ? 'bg-slate-900 text-amber-300 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -77,259 +78,217 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
         </div>
       </div>
 
-      {/* Custom Date Pickers if selected */}
-      {dateRange === 'custom' && (
-        <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-bold text-amber-900">Custom Range:</span>
-          <input
-            type="date"
-            value={customStartDate}
-            onChange={(e) => setCustomStartDate(e.target.value)}
-            className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg text-xs"
-          />
-          <span className="text-amber-800">to</span>
-          <input
-            type="date"
-            value={customEndDate}
-            onChange={(e) => setCustomEndDate(e.target.value)}
-            className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg text-xs"
-          />
-        </div>
-      )}
-
-      {/* Primary KPI Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Total Sales */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Sales</span>
-            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              <ShoppingBag className="w-4 h-4" />
-            </div>
+      {/* QUICK ACTIONS HERO BAR */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <button
+          onClick={() => onNavigate('billing')}
+          className="col-span-2 sm:col-span-1 p-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black text-sm shadow-md transition active:scale-98 flex items-center justify-between"
+        >
+          <div className="flex items-center space-x-2">
+            <ShoppingBag className="w-5 h-5" />
+            <span>New POS Bill</span>
           </div>
-          <div className="text-lg sm:text-2xl font-black text-slate-900 mt-2">
+          <ArrowRight className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => onNavigate('products')}
+          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-2"
+        >
+          <Plus className="w-4 h-4 text-amber-600" />
+          <span>Add Product</span>
+        </button>
+
+        <button
+          onClick={() => onNavigate('inventory')}
+          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-2"
+        >
+          <Boxes className="w-4 h-4 text-amber-600" />
+          <span>Manage Stock</span>
+        </button>
+
+        <button
+          onClick={() => onNavigate('model-sales')}
+          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-2"
+        >
+          <Shirt className="w-4 h-4 text-amber-600" />
+          <span>Model Sales</span>
+        </button>
+      </div>
+
+      {/* 7 CORE USEFUL METRIC CARDS AS REQUESTED */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* 1. Today's Sales */}
+        <div className="bg-slate-900 text-white p-4 rounded-xl shadow-sm col-span-2 sm:col-span-1">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-xs font-bold uppercase tracking-wider">Today's Sales</span>
+            <ShoppingBag className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-amber-400 mt-2">
             {formatCurrency(m.total_sales, false)}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
-            <span>{m.total_bills} bills completed</span>
+          <div className="text-xs text-slate-400 mt-1">
+            {m.total_bills} bills completed
           </div>
         </div>
 
-        {/* Gross Profit */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Gross Profit</span>
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-              <TrendingUp className="w-4 h-4" />
-            </div>
+        {/* 2. Today's Cash Received */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Cash Received</span>
+            <span className="text-base">💵</span>
           </div>
-          <div className="text-lg sm:text-2xl font-black text-blue-600 mt-2">
-            {formatCurrency(m.gross_profit, false)}
+          <div className="text-xl sm:text-2xl font-black text-slate-900 mt-2">
+            {formatCurrency(m.today_cash || 0, false)}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
-            <span>Margin: {m.gross_margin_percentage}%</span>
+          <div className="text-[11px] text-slate-400 mt-1 font-medium">
+            Cash in drawer
           </div>
         </div>
 
-        {/* Expenses */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Shop Expenses</span>
-            <div className="p-2 rounded-lg bg-rose-50 text-rose-600">
-              <DollarSign className="w-4 h-4" />
-            </div>
+        {/* 3. Today's GPay / UPI Received */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">GPay / UPI Received</span>
+            <Smartphone className="w-4 h-4 text-blue-600" />
           </div>
-          <div className="text-lg sm:text-2xl font-black text-rose-600 mt-2">
-            {formatCurrency(m.total_expenses, false)}
+          <div className="text-xl sm:text-2xl font-black text-blue-600 mt-2">
+            {formatCurrency(m.today_gpay || 0, false)}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1 font-medium">
-            <span>COGS: {formatCurrency(m.total_cogs, false)}</span>
+          <div className="text-[11px] text-slate-400 mt-1 font-medium">
+            Direct UPI settlements
           </div>
         </div>
 
-        {/* Net Profit */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Net Profit</span>
-            <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
-              <TrendingUp className="w-4 h-4" />
-            </div>
+        {/* 4. Today's Card Received */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Card Received</span>
+            <CreditCard className="w-4 h-4 text-purple-600" />
           </div>
-          <div className={`text-lg sm:text-2xl font-black mt-2 ${m.net_profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-            {formatCurrency(m.net_profit, false)}
+          <div className="text-xl sm:text-2xl font-black text-purple-600 mt-2">
+            {formatCurrency(m.today_card || 0, false)}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1 font-medium">
-            <span>Net Margin: {m.net_margin_percentage}%</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Secondary Row: Inventory Stats & Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {/* Inventory Valuation Card */}
-        <div className="bg-slate-900 text-white p-4 rounded-xl shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Available Inventory</span>
-              <Boxes className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="text-2xl font-black text-amber-300">
-              {m.total_available_stock} Units
-            </div>
-            <div className="text-xs text-slate-400 mt-1">
-              Purchase Cost Value: <span className="font-bold text-white">{formatCurrency(m.total_stock_value, false)}</span>
-            </div>
-          </div>
-
-          {/* Low Stock & Out of Stock Badges */}
-          <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800">
-            <div className="bg-slate-800/80 p-2 rounded-lg flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              <div>
-                <div className="text-xs font-bold text-amber-300">{m.low_stock_count} Items</div>
-                <div className="text-[10px] text-slate-400">Low Stock</div>
-              </div>
-            </div>
-
-            <div className="bg-slate-800/80 p-2 rounded-lg flex items-center space-x-2">
-              <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              <div>
-                <div className="text-xs font-bold text-rose-300">{m.out_of_stock_count} Items</div>
-                <div className="text-[10px] text-slate-400">Out of Stock</div>
-              </div>
-            </div>
+          <div className="text-[11px] text-slate-400 mt-1 font-medium">
+            Card machine total
           </div>
         </div>
 
-        {/* Quick Actions Panel */}
-        <div className="lg:col-span-2 bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">
-            Quick Actions
-          </span>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => onNavigate('billing')}
-              className="p-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs sm:text-sm flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95 transition"
-            >
-              <ShoppingBag className="w-5 h-5" />
-              <span>Quick Billing</span>
-            </button>
-
-            <button
-              onClick={() => onNavigate('stock-purchase')}
-              className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95 transition"
-            >
-              <Truck className="w-5 h-5 text-amber-400" />
-              <span>Add Stock</span>
-            </button>
-
-            <button
-              onClick={() => onNavigate('products')}
-              className="p-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm flex flex-col items-center justify-center gap-1.5 active:scale-95 transition"
-            >
-              <Shirt className="w-5 h-5 text-slate-700" />
-              <span>Add Product</span>
-            </button>
+        {/* 5. Total Products */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Total Products</span>
+            <Shirt className="w-4 h-4 text-slate-700" />
           </div>
+          <div className="text-xl sm:text-2xl font-black text-slate-900 mt-2">
+            {products.filter((p) => p.is_active).length}
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1 font-medium">
+            Active clothing models
+          </div>
+        </div>
 
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Primary shop timezone: Asia/Kolkata</span>
-            <button 
-              onClick={() => onNavigate('profit-loss')}
-              className="text-amber-600 font-bold hover:underline flex items-center gap-0.5"
-            >
-              <span>Full P&L Report</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+        {/* 6. Total Available Stock */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Available Stock</span>
+            <Boxes className="w-4 h-4 text-slate-700" />
+          </div>
+          <div className="text-xl sm:text-2xl font-black text-slate-900 mt-2">
+            {m.total_available_stock} <span className="text-xs font-normal text-slate-500">units</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1 font-medium">
+            Valuation: {formatCurrency(m.total_stock_value, false)}
+          </div>
+        </div>
+
+        {/* 7. Low Stock Products */}
+        <div 
+          onClick={() => onNavigate('inventory')}
+          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-amber-400 transition"
+        >
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Low Stock Products</span>
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+          </div>
+          <div className="text-xl sm:text-2xl font-black text-amber-900 mt-2">
+            {m.low_stock_count} <span className="text-xs font-normal text-amber-700">items</span>
+          </div>
+          <div className="text-[11px] text-amber-700 font-bold mt-1">
+            Tap to restock inventory ➔
           </div>
         </div>
       </div>
 
-      {/* Recent Bills Table */}
+      {/* RECENT BILLS SECTION */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
+        <div className="p-3.5 sm:p-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <Receipt className="w-4 h-4 text-slate-600" />
-            <h3 className="font-bold text-sm text-slate-900">Recent Completed Bills</h3>
+            <Receipt className="w-4 h-4 text-amber-500" />
+            <h3 className="font-black text-sm text-slate-900">Recent Bills</h3>
           </div>
           <button
             onClick={() => onNavigate('bills')}
-            className="text-xs text-amber-600 hover:underline font-bold"
+            className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center space-x-1"
           >
-            View All Bills ({bills.length})
+            <span>View All Bills</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-[10px] border-b border-slate-100">
-              <tr>
-                <th className="py-2.5 px-3">Invoice</th>
-                <th className="py-2.5 px-3">Time</th>
-                <th className="py-2.5 px-3">Customer</th>
-                <th className="py-2.5 px-3">Items</th>
-                <th className="py-2.5 px-3">Total</th>
-                <th className="py-2.5 px-3">Profit</th>
-                <th className="py-2.5 px-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {recentBills.map((bill) => (
-                <tr key={bill.id} className="hover:bg-slate-50/60 transition">
-                  <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
-                    <button
-                      onClick={() => onSelectBill(bill)}
-                      className="hover:underline text-amber-700"
-                    >
-                      {bill.invoice_number}
-                    </button>
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
-                    {formatKolkataTime(bill.bill_date)}
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-700">
-                    <div>{bill.customer_name}</div>
-                    {bill.customer_phone && (
-                      <div className="text-[10px] text-slate-400 font-mono">+91 {bill.customer_phone}</div>
-                    )}
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-600">
-                    {bill.items?.length || 1} items
-                  </td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900">
-                    {formatCurrency(bill.grand_total, false)}
-                  </td>
-                  <td className="py-2.5 px-3 font-semibold text-emerald-600">
-                    +{formatCurrency(bill.gross_profit, false)}
-                  </td>
-                  <td className="py-2.5 px-3 text-right whitespace-nowrap space-x-1">
-                    {/* Instant WhatsApp Share */}
-                    <button
-                      onClick={() => openWhatsAppDirect(bill.customer_phone || '', bill, settings)}
-                      className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold"
-                      title="Share via WhatsApp"
-                    >
-                      <Share2 className="w-3.5 h-3.5 inline" />
-                    </button>
-                    <button
-                      onClick={() => onSelectBill(bill)}
-                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold"
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
+        <div className="divide-y divide-slate-100">
+          {recentBills.map((b) => (
+            <div
+              key={b.id}
+              className="p-3 sm:p-4 flex items-center justify-between hover:bg-slate-50 transition"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center space-x-2">
+                  <span className="font-mono font-bold text-xs text-slate-900">{b.invoice_number}</span>
+                  <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-bold">
+                    {b.payment_method === 'UPI' && b.notes?.includes('[Payment Method: CARD]')
+                      ? 'CARD'
+                      : b.payment_method}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  {formatKolkataDateTime(b.bill_date)} • {b.customer_name || 'Walk-in'} • {b.items?.length || 0} items
+                </div>
+              </div>
 
-              {recentBills.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
-                    No bills recorded yet. Tap Quick Billing to create your first bill!
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              <div className="flex items-center space-x-3">
+                <div className="text-right">
+                  <div className="font-black text-sm text-slate-900">{formatCurrency(b.grand_total, false)}</div>
+                  <div className="text-[10px] text-emerald-600 font-bold">Paid</div>
+                </div>
+
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => onSelectBill(b)}
+                    className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-100"
+                    title="View Receipt"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  {b.customer_phone && (
+                    <button
+                      onClick={() => openWhatsAppDirect(b.customer_phone || '', b, settings)}
+                      className="p-1.5 text-emerald-600 hover:text-emerald-700 rounded-lg hover:bg-emerald-50"
+                      title="Share to WhatsApp"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {recentBills.length === 0 && (
+            <div className="py-8 text-center text-slate-400 text-xs">
+              No bills recorded today yet.
+            </div>
+          )}
         </div>
       </div>
     </div>

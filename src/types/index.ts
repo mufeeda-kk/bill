@@ -203,6 +203,23 @@ export interface DashboardMetrics {
   total_stock_value: number;
   low_stock_count: number;
   out_of_stock_count: number;
+  today_cash?: number;
+  today_gpay?: number;
+  today_card?: number;
+}
+
+export interface ProductSalesStat {
+  product_id: string;
+  product_name: string;
+  sku: string;
+  category_name: string;
+  units_sold: number;
+  total_sales: number;
+  total_profit: number;
+  available_stock: number;
+  current_selling_price: number;
+  current_cost_price: number;
+  low_stock_threshold: number;
 }
 
 export interface ProfitLossReport {

@@ -57,7 +57,7 @@ interface StoreContextType {
   subtotal: number;
   grandTotal: number;
   balanceDue: number;
-  checkoutBill: () => Promise<{ success: boolean; bill?: Bill; message?: string }>;
+  checkoutBill: (customNotes?: string) => Promise<{ success: boolean; bill?: Bill; message?: string }>;
 
   // Bills & Invoices
   bills: Bill[];
@@ -195,6 +195,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Refresh Dashboard Metrics
       const bounds = getDateBounds();
       const metrics = await storeService.getDashboardMetrics(bounds.start, bounds.end);
+      
+      // Calculate payment method breakdown from actual bills in date range
+      let cash = 0;
+      let gpay = 0;
+      let card = 0;
+      const startTime = bounds.start.getTime();
+      const endTime = bounds.end.getTime();
+
+      for (const bill of b) {
+        if (bill.status !== 'COMPLETED') continue;
+        const bTime = new Date(bill.bill_date).getTime();
+        if (bTime >= startTime && bTime <= endTime) {
+          const paid = bill.amount_paid || 0;
+          if (bill.payment_method === 'CASH') {
+            cash += paid;
+          } else if (bill.payment_method === 'UPI') {
+            if (bill.notes && bill.notes.includes('[Payment Method: CARD]')) {
+              card += paid;
+            } else {
+              gpay += paid;
+            }
+          } else if (bill.payment_method === 'SPLIT' && bill.notes) {
+            const cashMatch = bill.notes.match(/Cash ₹?([\d.]+)/i);
+            const gpayMatch = bill.notes.match(/GPay ₹?([\d.]+)/i) || bill.notes.match(/UPI ₹?([\d.]+)/i);
+            const cardMatch = bill.notes.match(/Card ₹?([\d.]+)/i);
+            if (cashMatch) cash += parseFloat(cashMatch[1]) || 0;
+            if (gpayMatch) gpay += parseFloat(gpayMatch[1]) || 0;
+            if (cardMatch) card += parseFloat(cardMatch[1]) || 0;
+          }
+        }
+      }
+
+      metrics.today_cash = cash;
+      metrics.today_gpay = gpay;
+      metrics.today_card = card;
+
       setDashboardMetrics(metrics);
       setLastSyncTime(new Date());
     } catch (err) {
@@ -386,7 +422,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   // Fast Checkout with Idempotency Key
-  const checkoutBill = async () => {
+  const checkoutBill = async (customNotes?: string) => {
     if (cart.length === 0) {
       return { success: false, message: 'Cart is empty' };
     }
@@ -404,6 +440,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       balance_due: balanceDue,
       customer_name: customerName,
       customer_phone: customerPhone,
+      notes: customNotes,
       idempotency_key: idempotencyKey,
       device_id: currentDevice?.token,
       device_name: currentDevice?.name,
