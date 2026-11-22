@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Database, CheckCircle, AlertTriangle, X, Shield, Copy } from 'lucide-react';
 import { 
   getSupabaseCredentials, saveSupabaseCredentials, 
-  clearSupabaseCredentials, isSupabaseConfigured 
+  clearSupabaseCredentials, isSupabaseConfigured,
+  DEFAULT_SUPABASE_URL
 } from '../../lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 
@@ -18,7 +19,7 @@ export const DatabaseConfigModal: React.FC<DatabaseConfigModalProps> = ({
   onConnected,
 }) => {
   const currentCreds = getSupabaseCredentials();
-  const [url, setUrl] = useState(currentCreds.url);
+  const [url, setUrl] = useState(currentCreds.url || DEFAULT_SUPABASE_URL);
   const [anonKey, setAnonKey] = useState(currentCreds.anonKey);
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

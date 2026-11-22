@@ -1,10 +1,12 @@
 // Supabase Client and Connection State Management
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+export const DEFAULT_SUPABASE_URL = 'https://lmhtttbkuhzvetptqaid.supabase.co';
+
 const STORAGE_URL_KEY = 'vcs_supabase_url';
 const STORAGE_KEY_KEY = 'vcs_supabase_anon_key';
 
-// Read from build environment variables first, then fallback to local runtime storage
+// Read from build environment variables first, then fallback to local runtime storage or default store URL
 export function getSupabaseCredentials(): { url: string; anonKey: string } {
   const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
   const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -18,7 +20,10 @@ export function getSupabaseCredentials(): { url: string; anonKey: string } {
     // Ignore storage access errors
   }
 
-  const finalUrl = (envUrl && !envUrl.includes('your-project-id')) ? envUrl : storageUrl;
+  const finalUrl = (envUrl && !envUrl.includes('your-project-id')) 
+    ? envUrl 
+    : (storageUrl || DEFAULT_SUPABASE_URL);
+
   const finalKey = (envKey && !envKey.includes('your-anon-public-key')) ? envKey : storageKey;
 
   return { url: finalUrl, anonKey: finalKey };
@@ -48,7 +53,8 @@ export function checkIsSupabaseConfigured(url: string, key: string): boolean {
     key &&
     url.startsWith('https://') &&
     !url.includes('your-project-id') &&
-    url.includes('.supabase.co')
+    url.includes('.supabase.co') &&
+    (key.startsWith('eyJ') || key.startsWith('sb_publishable_') || key.length > 20)
   );
 }
 
