@@ -56,6 +56,7 @@ export const App: React.FC = () => {
         {currentTab === 'bills' && (
           <BillHistoryScreen
             onSelectBill={(b) => setViewingBill(b)}
+            onNavigate={(tab) => setCurrentTab(tab)}
           />
         )}
 

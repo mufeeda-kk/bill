@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
-import { Smartphone, ShieldCheck, Download, Upload, CheckCircle, Store, LogOut, AlertTriangle, Database } from 'lucide-react';
+import { 
+  Smartphone, ShieldCheck, Download, Upload, 
+  CheckCircle, Store, LogOut, AlertTriangle, Database, Trash2 
+} from 'lucide-react';
 import { storeService } from '../../services/storeService';
 import { formatKolkataDateTime } from '../../lib/formatters';
 import { isSupabaseConfigured, getSupabaseCredentials } from '../../lib/supabase';
@@ -9,8 +12,12 @@ import { DatabaseConfigModal } from './DatabaseConfigModal';
 export const SettingsScreen: React.FC = () => {
   const { 
     settings, updateSettings, authorizedDevices, 
-    revokeDevice, currentDevice, logoutDevice, refreshData 
+    revokeDevice, currentDevice, logoutDevice, refreshData, clearAllBills 
   } = useStore();
+
+  const [clearPasscode, setClearPasscode] = useState('');
+  const [isClearingBills, setIsClearingBills] = useState(false);
+  const [clearBillsStatus, setClearBillsStatus] = useState<string | null>(null);
 
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const currentCreds = getSupabaseCredentials();
@@ -370,6 +377,53 @@ export const SettingsScreen: React.FC = () => {
               <span>Select Backup File</span>
               <input type="file" accept=".json" onChange={handleRestoreFile} className="hidden" />
             </label>
+          </div>
+        </div>
+
+        {/* Start Fresh: Reset Sales & Clear Sample Bills */}
+        <div className="p-4 bg-rose-50/70 rounded-xl border border-rose-200 text-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-rose-900 font-bold text-sm">
+              <Trash2 className="w-4 h-4 text-rose-600" />
+              <span>Reset Sales & Clear Sample Bills (Start Fresh)</span>
+            </div>
+          </div>
+          <p className="text-rose-800 text-[11px] leading-relaxed">
+            Permanently delete all sample/test bills and reset daily sales back to ₹0 across all 3 shop phones to launch real shop operations.
+          </p>
+
+          {clearBillsStatus && (
+            <div className="p-2.5 bg-white border border-rose-300 rounded-lg text-rose-800 font-bold text-xs">
+              {clearBillsStatus}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+            <input
+              type="password"
+              placeholder="Enter passcode (VCS786)"
+              value={clearPasscode}
+              onChange={(e) => setClearPasscode(e.target.value)}
+              className="px-3 py-2 bg-white border border-rose-300 rounded-xl font-mono text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+            <button
+              type="button"
+              disabled={isClearingBills}
+              onClick={async () => {
+                if (clearPasscode.trim() !== (settings.enrollment_passcode || 'VCS786')) {
+                  setClearBillsStatus('Invalid passcode. Default is VCS786');
+                  return;
+                }
+                setIsClearingBills(true);
+                const res = await clearAllBills();
+                setIsClearingBills(false);
+                setClearBillsStatus(res.message || 'Bills cleared successfully');
+                setClearPasscode('');
+              }}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-black rounded-xl text-xs shadow-sm transition disabled:opacity-50"
+            >
+              {isClearingBills ? 'Clearing...' : 'Clear All Bills & Reset to ₹0'}
+            </button>
           </div>
         </div>
 

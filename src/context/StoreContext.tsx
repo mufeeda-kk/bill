@@ -66,6 +66,9 @@ interface StoreContextType {
   lastCompletedBill: Bill | null;
   setLastCompletedBill: (bill: Bill | null) => void;
   cancelBill: (billId: string, reason: string) => Promise<{ success: boolean; message?: string }>;
+  deleteBill: (billId: string, restock?: boolean) => Promise<{ success: boolean; message?: string }>;
+  exchangeBillItem: (billId: string, itemId: string, qty: number, reason: string) => Promise<{ success: boolean; message?: string }>;
+  clearAllBills: () => Promise<{ success: boolean; message?: string }>;
 
   // Stock Purchases
   addStockPurchase: (payload: AddPurchasePayload) => Promise<{ success: boolean; message?: string }>;
@@ -508,6 +511,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return res;
   };
 
+  const deleteBill = async (billId: string, restock: boolean = true) => {
+    const res = await storeService.deleteBill(billId, restock);
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
+  const exchangeBillItem = async (billId: string, itemId: string, qty: number, reason: string) => {
+    const res = await storeService.exchangeBillItem(billId, itemId, qty, reason);
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
+  const clearAllBills = async () => {
+    const res = await storeService.clearAllBills();
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
   // Expenses
   const addExpense = async (expense: Omit<Expense, 'id'>) => {
     const res = await storeService.addExpense({
@@ -574,6 +601,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         lastCompletedBill,
         setLastCompletedBill,
         cancelBill,
+        deleteBill,
+        exchangeBillItem,
+        clearAllBills,
         addStockPurchase,
         adjustStock,
         expenses,
