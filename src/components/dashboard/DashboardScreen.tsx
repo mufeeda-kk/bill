@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { 
   ShoppingBag, Smartphone, CreditCard, 
   Shirt, Boxes, AlertTriangle, ArrowRight, Plus, 
-  Receipt, Share2, Eye, TrendingUp, Trash2, X 
+  Receipt, Share2, Eye 
 } from 'lucide-react';
 import { formatCurrency, formatKolkataDateTime } from '../../lib/formatters';
 import { openWhatsAppDirect } from '../../lib/whatsapp';
@@ -17,31 +17,8 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, onSelectBill }) => {
   const { 
     dashboardMetrics, dateRange, setDateRange, 
-    bills, products, settings, clearAllBills 
+    bills, products, settings 
   } = useStore();
-
-  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
-  const [clearPasscode, setClearPasscode] = useState('');
-  const [isClearing, setIsClearing] = useState(false);
-  const [clearError, setClearError] = useState<string | null>(null);
-
-  const handleClearAllBills = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (clearPasscode.trim() !== (settings.enrollment_passcode || 'VCS786')) {
-      setClearError('Invalid passcode. Default is VCS786');
-      return;
-    }
-    setIsClearing(true);
-    setClearError(null);
-    const res = await clearAllBills();
-    setIsClearing(false);
-    if (res.success) {
-      setIsClearModalOpen(false);
-      setClearPasscode('');
-    } else {
-      setClearError(res.message || 'Failed to clear bills');
-    }
-  };
 
   const m = dashboardMetrics || {
     total_sales: 0,
@@ -102,49 +79,40 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
       </div>
 
       {/* QUICK ACTIONS HERO BAR */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <button
           onClick={() => onNavigate('billing')}
-          className="col-span-2 sm:col-span-1 p-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black text-xs sm:text-sm shadow-md transition active:scale-98 flex items-center justify-between"
+          className="col-span-2 sm:col-span-1 p-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black text-sm shadow-md transition active:scale-98 flex items-center justify-between"
         >
-          <div className="flex items-center space-x-1.5">
-            <ShoppingBag className="w-4 h-4" />
+          <div className="flex items-center space-x-2">
+            <ShoppingBag className="w-5 h-5" />
             <span>New POS Bill</span>
           </div>
-          <ArrowRight className="w-3.5 h-3.5" />
+          <ArrowRight className="w-4 h-4" />
         </button>
 
         <button
           onClick={() => onNavigate('products')}
-          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-1.5 active:scale-95"
+          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-2"
         >
-          <Plus className="w-3.5 h-3.5 text-amber-600" />
+          <Plus className="w-4 h-4 text-amber-600" />
           <span>Add Product</span>
         </button>
 
         <button
           onClick={() => onNavigate('inventory')}
-          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-1.5 active:scale-95"
+          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-2"
         >
-          <Boxes className="w-3.5 h-3.5 text-amber-600" />
-          <span>Stock</span>
+          <Boxes className="w-4 h-4 text-amber-600" />
+          <span>Manage Stock</span>
         </button>
 
         <button
           onClick={() => onNavigate('model-sales')}
-          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-1.5 active:scale-95"
+          className="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 shadow-xs transition flex items-center justify-center space-x-2"
         >
-          <Shirt className="w-3.5 h-3.5 text-amber-600" />
+          <Shirt className="w-4 h-4 text-amber-600" />
           <span>Model Sales</span>
-        </button>
-
-        {/* Dedicated Profit & Loss Quick Button */}
-        <button
-          onClick={() => onNavigate('profit-loss')}
-          className="col-span-2 sm:col-span-1 p-3 bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl font-black text-xs shadow-xs transition flex items-center justify-center space-x-1.5 active:scale-95"
-        >
-          <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Profit & Loss</span>
         </button>
       </div>
 
@@ -250,42 +218,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             Tap to restock inventory ➔
           </div>
         </div>
-
-        {/* 8. Dedicated Profit & Loss Overview Card */}
-        <div 
-          onClick={() => onNavigate('profit-loss')}
-          className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-white p-4 rounded-xl shadow-md cursor-pointer hover:ring-2 hover:ring-amber-400 transition col-span-2"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
-              Profit & Loss (P&L Overview)
-            </span>
-            <span className="text-[10px] bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-full text-slate-300 font-bold flex items-center gap-1">
-              View Statement <ArrowRight className="w-3 h-3" />
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 mt-3 pt-2.5 border-t border-slate-800 text-center">
-            <div>
-              <span className="text-[10px] text-slate-400 block font-medium">Revenue</span>
-              <span className="text-sm sm:text-base font-bold text-slate-100">{formatCurrency(m.total_sales, false)}</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 block font-medium">Cost (COGS)</span>
-              <span className="text-sm sm:text-base font-bold text-rose-400">{formatCurrency(m.total_cogs, false)}</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 block font-medium">Net Profit</span>
-              <span className={`text-base sm:text-lg font-black ${m.net_profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {formatCurrency(m.net_profit, false)}
-              </span>
-              <span className="text-[10px] text-emerald-300 font-bold block">
-                {m.net_margin_percentage}% margin
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* RECENT BILLS SECTION */}
@@ -295,31 +227,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             <Receipt className="w-4 h-4 text-amber-500" />
             <h3 className="font-black text-sm text-slate-900">Recent Bills</h3>
           </div>
-
-          <div className="flex items-center space-x-2">
-            {bills.length > 0 && (
-              <button
-                onClick={() => {
-                  setClearError(null);
-                  setClearPasscode('');
-                  setIsClearModalOpen(true);
-                }}
-                className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 rounded-lg flex items-center gap-1 transition"
-                title="Clear all test bills to start fresh"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Clear Bills (Start Fresh)</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => onNavigate('bills')}
-              className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center space-x-1"
-            >
-              <span>View All</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <button
+            onClick={() => onNavigate('bills')}
+            className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center space-x-1"
+          >
+            <span>View All Bills</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div className="divide-y divide-slate-100">
@@ -377,70 +291,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
           )}
         </div>
       </div>
-
-      {/* Clear All Test Bills Modal */}
-      {isClearModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="bg-rose-600 text-white p-4 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Trash2 className="w-5 h-5" />
-                <h3 className="font-bold text-sm">Clear All Bills & Start Fresh</h3>
-              </div>
-              <button
-                onClick={() => setIsClearModalOpen(false)}
-                className="text-rose-100 hover:text-white p-1 rounded-lg hover:bg-rose-700/50"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleClearAllBills} className="p-4 space-y-3.5 text-xs">
-              {clearError && (
-                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-1.5 font-bold">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{clearError}</span>
-                </div>
-              )}
-
-              <p className="text-slate-600 leading-relaxed font-medium">
-                This will clear all <strong>{bills.length} test bills</strong> and reset today's sales and payment totals to <strong>₹0</strong> across all devices so you can start fresh.
-              </p>
-
-              <div>
-                <label className="font-bold text-slate-800 block mb-1">
-                  Enter Shop Passcode to Confirm:
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={clearPasscode}
-                  onChange={(e) => setClearPasscode(e.target.value)}
-                  placeholder="Default: VCS786"
-                  className="w-full px-3 py-2 border rounded-xl text-sm font-mono font-bold tracking-widest text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex items-center justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsClearModalOpen(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isClearing}
-                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-black rounded-xl shadow-md transition disabled:opacity-50"
-                >
-                  {isClearing ? 'Clearing...' : 'Clear All & Reset to ₹0'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
