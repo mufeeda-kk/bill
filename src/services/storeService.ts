@@ -56,19 +56,56 @@ export const INITIAL_SETTINGS: StoreSettings = {
 const STORAGE_PREFIX = 'vcs_store_';
 
 // Customer Handover Clean State Identifier
-const HANDOVER_RESET_VERSION_KEY = 'vcs_customer_handover_v20261123';
+const HANDOVER_RESET_VERSION_KEY = 'vcs_customer_handover_v20261123_full_wipe';
 
 function ensureCustomerHandoverCleanState() {
-  if (typeof window === 'undefined' || !window.localStorage) return;
+  if (typeof window === 'undefined') return;
   try {
-    const isCleaned = localStorage.getItem(HANDOVER_RESET_VERSION_KEY);
-    if (!isCleaned) {
-      // Wipe all demo/test business data from local storage
-      const businessKeys = ['bills', 'products', 'categories', 'batches', 'purchases', 'expenses', 'movements'];
-      for (const k of businessKeys) {
-        localStorage.removeItem(STORAGE_PREFIX + k);
+    if (window.localStorage) {
+      const isCleaned = localStorage.getItem(HANDOVER_RESET_VERSION_KEY);
+      if (!isCleaned) {
+        // Wipe all business and customer data from local storage
+        const businessKeys = [
+          'bills', 'products', 'categories', 'batches', 'purchases', 
+          'expenses', 'movements', 'returns', 'customers', 'customer_profiles',
+          'customer_credits', 'customer_loyalty', 'loyalty_rewards', 'customer_notes',
+          'cart_draft', 'customer_phone', 'customer_name', 'recent_customers'
+        ];
+        for (const k of businessKeys) {
+          localStorage.removeItem(STORAGE_PREFIX + k);
+          localStorage.removeItem(k);
+        }
+
+        // Clean any leftover customer search or transaction caches
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (
+            key.startsWith(STORAGE_PREFIX) && 
+            !key.includes('settings') && 
+            !key.includes('device') && 
+            !key.includes('supabase')
+          )) {
+            keysToRemove.push(key);
+          }
+        }
+        for (const k of keysToRemove) {
+          localStorage.removeItem(k);
+        }
+
+        localStorage.setItem(HANDOVER_RESET_VERSION_KEY, 'true');
       }
-      localStorage.setItem(HANDOVER_RESET_VERSION_KEY, 'true');
+    }
+
+    // Clear IndexedDB customer/transaction stores if present
+    if (window.indexedDB && window.indexedDB.databases) {
+      window.indexedDB.databases().then((dbs) => {
+        dbs.forEach((db) => {
+          if (db.name && (db.name.includes('vcs') || db.name.includes('customer') || db.name.includes('bill'))) {
+            window.indexedDB.deleteDatabase(db.name);
+          }
+        });
+      }).catch(() => {});
     }
   } catch (e) {
     console.warn('Local storage check warning:', e);
@@ -1061,6 +1098,12 @@ export class StoreService {
         await supabase.from('expenses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('categories').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        // Clear customer records from customer tables if configured in Supabase
+        await supabase.from('customers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('customer_profiles').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('customer_credits').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('customer_loyalty').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('customer_notes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       } catch (err: unknown) {
         console.warn('Supabase direct deletion warning:', err);
       }
@@ -1073,8 +1116,14 @@ export class StoreService {
     saveLocal('purchases', []);
     saveLocal('expenses', []);
     saveLocal('movements', []);
+    saveLocal('customers', []);
+    saveLocal('recent_customers', []);
 
     if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem('customer_phone');
+      localStorage.removeItem('customer_name');
+      localStorage.removeItem('vcs_customer_phone');
+      localStorage.removeItem('vcs_customer_name');
       localStorage.setItem(HANDOVER_RESET_VERSION_KEY, 'true');
     }
 
