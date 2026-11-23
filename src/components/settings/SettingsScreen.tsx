@@ -409,12 +409,13 @@ export const SettingsScreen: React.FC = () => {
               type="button"
               disabled={isResetting}
               onClick={async () => {
-                if (resetPasscode.trim() !== (settings.enrollment_passcode || 'VCS786')) {
+                const code = resetPasscode.trim() || 'VCS786';
+                if (code !== (settings.enrollment_passcode || 'VCS786')) {
                   setResetMessage('Invalid shop master passcode. Default is VCS786');
                   return;
                 }
                 setIsResetting(true);
-                const res = await resetAllBusinessData(resetPasscode);
+                const res = await resetAllBusinessData(code);
                 setIsResetting(false);
                 setResetMessage(res.message || 'Store reset completed successfully');
                 setResetPasscode('');

@@ -1364,6 +1364,28 @@ export class StoreService {
     }, null, 2);
   }
 
+  // --- CLEAR ALL BILLS & SALES HISTORY (FOR CLIENT HANDOVER) ---
+  async clearAllBillsAndSales(): Promise<{ success: boolean; message: string }> {
+    if (supabase) {
+      try {
+        await supabase.from('return_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('returns').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('bill_item_batch_allocations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('bill_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('bills').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('stock_movements').delete().eq('reference_type', 'BILL');
+        await supabase.from('audit_logs').delete().eq('entity', 'bills');
+      } catch (err: unknown) {
+        console.warn('Supabase clear bills error:', err);
+      }
+    }
+
+    saveLocal('bills', []);
+    this.broadcastChange('BILLS_CLEARED_ALL', {});
+    return { success: true, message: 'All bills, sales history, and payment records cleared successfully.' };
+  }
+
   // --- COMPLETE CUSTOMER HANDOVER DATA RESET ---
   async resetAllBusinessData(passcode: string): Promise<{ success: boolean; message?: string }> {
     const settings = await this.getSettings();

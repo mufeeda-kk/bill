@@ -68,6 +68,7 @@ interface StoreContextType {
   setLastCompletedBill: (bill: Bill | null) => void;
   cancelBill: (billId: string, reason: string) => Promise<{ success: boolean; message?: string }>;
   deleteBill: (billId: string) => Promise<{ success: boolean; message: string }>;
+  clearAllBillsAndSales: () => Promise<{ success: boolean; message: string }>;
 
   // Customers
   getCustomers: () => Promise<{ name: string; phone?: string; total_bills: number; total_spent: number; last_visit: string }[]>;
@@ -529,6 +530,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return res;
   };
 
+  // Clear All Bills & Sales History (For Client Handover)
+  const clearAllBillsAndSales = async () => {
+    const res = await storeService.clearAllBillsAndSales();
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
   // Delete Product
   const deleteProduct = async (productId: string) => {
     const res = await storeService.deleteProduct(productId);
@@ -637,6 +647,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setLastCompletedBill,
         cancelBill,
         deleteBill,
+        clearAllBillsAndSales,
         getCustomers,
         deleteCustomer,
         deleteStockMovement,

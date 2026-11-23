@@ -21,7 +21,7 @@ interface CustomerRecord {
 }
 
 export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ onSelectBill }) => {
-  const { bills, cancelBill, deleteBill, getCustomers, deleteCustomer, settings } = useStore();
+  const { bills, cancelBill, deleteBill, clearAllBillsAndSales, getCustomers, deleteCustomer, settings } = useStore();
   const [activeView, setActiveView] = useState<'bills' | 'customers'>('bills');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
@@ -32,6 +32,10 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ onSelectBi
   const [cancelReason, setCancelReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelMsg, setCancelMsg] = useState<string | null>(null);
+
+  // Clear All Bills Modal (Client Sale Handover)
+  const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
 
   // Delete Bill Modal
   const [deletingBill, setDeletingBill] = useState<Bill | null>(null);
@@ -169,6 +173,17 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ onSelectBi
     }
   };
 
+  const handleConfirmClearAll = async () => {
+    setIsClearingAll(true);
+    const res = await clearAllBillsAndSales();
+    setIsClearingAll(false);
+    setIsClearAllModalOpen(false);
+    if (res.success) {
+      setActionSuccessMsg('All bills, sales history, and payments have been completely cleared for your client.');
+      setTimeout(() => setActionSuccessMsg(null), 5000);
+    }
+  };
+
   return (
     <div className="space-y-4 pb-20 md:pb-6">
       {/* Success Notification Banner */}
@@ -196,30 +211,43 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ onSelectBi
           </p>
         </div>
 
-        {/* View Switcher Tabs */}
-        <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold self-start sm:self-auto">
-          <button
-            onClick={() => setActiveView('bills')}
-            className={`px-3.5 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
-              activeView === 'bills'
-                ? 'bg-slate-900 text-amber-300 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <ReceiptText className="w-3.5 h-3.5" />
-            <span>Bills History</span>
-          </button>
-          <button
-            onClick={() => setActiveView('customers')}
-            className={`px-3.5 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
-              activeView === 'customers'
-                ? 'bg-slate-900 text-amber-300 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Customers ({customerList.length})</span>
-          </button>
+        {/* Actions & View Switcher Tabs */}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {bills.length > 0 && activeView === 'bills' && (
+            <button
+              onClick={() => setIsClearAllModalOpen(true)}
+              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs flex items-center space-x-1.5 transition border border-rose-200"
+              title="Clear all bills to prepare for client sale"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear All Bills</span>
+            </button>
+          )}
+
+          <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold">
+            <button
+              onClick={() => setActiveView('bills')}
+              className={`px-3.5 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
+                activeView === 'bills'
+                  ? 'bg-slate-900 text-amber-300 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ReceiptText className="w-3.5 h-3.5" />
+              <span>Bills History</span>
+            </button>
+            <button
+              onClick={() => setActiveView('customers')}
+              className={`px-3.5 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
+                activeView === 'customers'
+                  ? 'bg-slate-900 text-amber-300 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Customers ({customerList.length})</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -714,6 +742,68 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ onSelectBi
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Bills Confirmation Modal (Client Sale Handover) */}
+      {isClearAllModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="bg-rose-600 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Trash2 className="w-5 h-5 text-white shrink-0" />
+                <div>
+                  <h3 className="font-bold text-sm tracking-tight">Clear All Bills & Sales Data</h3>
+                  <p className="text-[11px] text-rose-100">Prepare Web App for Client Handover</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsClearAllModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-rose-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 text-xs">
+              <p className="text-slate-800 leading-relaxed font-semibold">
+                Are you preparing to sell this web app to your client?
+              </p>
+
+              <div className="bg-rose-50 border border-rose-200 text-rose-900 p-3 rounded-xl space-y-1.5 text-[11px] leading-relaxed">
+                <div>This will permanently delete:</div>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li><strong>Today's Sales & Bills:</strong> Resets to ₹0 and 0 completed bills.</li>
+                  <li><strong>7-day and 30-day Sales History:</strong> Cleared completely.</li>
+                  <li><strong>Payment Collections:</strong> Cash, UPI/GPay, and Card reset to ₹0.</li>
+                  <li><strong>Customer Invoices:</strong> All past test receipts removed.</li>
+                </ul>
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Your store settings, brand logo, and phone connections will remain intact. The client will start from 0.
+              </p>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsClearAllModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isClearingAll}
+                  onClick={handleConfirmClearAll}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isClearingAll ? 'Clearing All Bills...' : 'Confirm Clear All Bills (Start at ₹0)'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

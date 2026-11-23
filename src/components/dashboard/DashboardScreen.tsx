@@ -17,13 +17,28 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, onSelectBill }) => {
   const { 
     dashboardMetrics, dateRange, setDateRange, 
-    bills, products, settings, deleteBill 
+    bills, products, settings, deleteBill, clearAllBillsAndSales 
   } = useStore();
 
   const [deletingBill, setDeletingBill] = useState<Bill | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Clear All Bills Modal (Client Sale Handover)
+  const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
+
+  const handleConfirmClearAll = async () => {
+    setIsClearingAll(true);
+    const res = await clearAllBillsAndSales();
+    setIsClearingAll(false);
+    setIsClearAllModalOpen(false);
+    if (res.success) {
+      setSuccessMsg('All bills, sales history, and payments have been completely cleared for your client.');
+      setTimeout(() => setSuccessMsg(null), 5000);
+    }
+  };
 
   const handleConfirmDelete = async () => {
     if (!deletingBill) return;
@@ -263,13 +278,25 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             <Receipt className="w-4 h-4 text-amber-500" />
             <h3 className="font-black text-sm text-slate-900">Recent Bills</h3>
           </div>
-          <button
-            onClick={() => onNavigate('bills')}
-            className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center space-x-1"
-          >
-            <span>View All Bills</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center space-x-3">
+            {recentBills.length > 0 && (
+              <button
+                onClick={() => setIsClearAllModalOpen(true)}
+                className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center space-x-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 rounded-lg transition"
+                title="Clear all bills to prepare for client sale"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear All Bills</span>
+              </button>
+            )}
+            <button
+              onClick={() => onNavigate('bills')}
+              className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center space-x-1"
+            >
+              <span>View All Bills</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <div className="divide-y divide-slate-100">
@@ -422,6 +449,68 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>{isDeleting ? 'Deleting...' : 'Confirm Delete & Restore'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Bills Confirmation Modal (Client Sale Handover) */}
+      {isClearAllModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="bg-rose-600 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Trash2 className="w-5 h-5 text-white shrink-0" />
+                <div>
+                  <h3 className="font-bold text-sm tracking-tight">Clear All Bills & Sales Data</h3>
+                  <p className="text-[11px] text-rose-100">Prepare Web App for Client Handover</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsClearAllModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-rose-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 text-xs">
+              <p className="text-slate-800 leading-relaxed font-semibold">
+                Are you preparing to sell this web app to your client?
+              </p>
+
+              <div className="bg-rose-50 border border-rose-200 text-rose-900 p-3 rounded-xl space-y-1.5 text-[11px] leading-relaxed">
+                <div>This will permanently delete:</div>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li><strong>Today's Sales & Bills:</strong> Resets to ₹0 and 0 completed bills.</li>
+                  <li><strong>7-day and 30-day Sales History:</strong> Cleared completely.</li>
+                  <li><strong>Payment Collections:</strong> Cash, UPI/GPay, and Card reset to ₹0.</li>
+                  <li><strong>Customer Invoices:</strong> All past test receipts removed.</li>
+                </ul>
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Your store settings, brand logo, and phone connections will remain intact. The client will start from 0.
+              </p>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsClearAllModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isClearingAll}
+                  onClick={handleConfirmClearAll}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isClearingAll ? 'Clearing All Bills...' : 'Confirm Clear All Bills (Start at ₹0)'}</span>
                 </button>
               </div>
             </div>
