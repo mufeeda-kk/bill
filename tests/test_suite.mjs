@@ -767,6 +767,32 @@ assert.equal(delMov.success, true);
 assert.equal(storeDelete.movements.length, movCountBefore - 1);
 console.log('✅ Safe product deletion and individual history management PASSED.\n');
 
+// -------------------------------------------------------------------
+// TEST 13: SUPABASE MIGRATION SCHEMA, RPC PARAMETERS & CACHE NOTIFICATION
+// -------------------------------------------------------------------
+console.log('TEST 13: Supabase Migration Schema, RPC Signatures & PostgREST Cache Notification');
+const migrationPath = join(process.cwd(), 'supabase', 'migrations', '20241123000002_manual_management_and_delete.sql');
+assert.equal(existsSync(migrationPath), true, 'Manual delete migration file must exist');
+
+const migrationSql = readFileSync(migrationPath, 'utf8');
+// 1. Function signatures with default values
+assert.equal(migrationSql.includes('delete_bill_atomic'), true);
+assert.equal(migrationSql.includes('p_bill_id UUID'), true);
+assert.equal(migrationSql.includes('p_device_id TEXT DEFAULT NULL'), true);
+assert.equal(migrationSql.includes('p_bill_id TEXT'), true);
+
+// 2. Strict Check Constraint Compliance (Must not contain illegal check constraint values)
+assert.equal(migrationSql.includes('RESTORE_IN'), false, 'Must not use RESTORE_IN (violates movement_type constraint)');
+assert.equal(migrationSql.includes("'BILL_DELETE'"), false, "Must not use 'BILL_DELETE' (violates reference_type constraint)");
+assert.equal(migrationSql.includes('CANCEL_IN'), true, 'Must use valid CANCEL_IN movement_type');
+
+// 3. PostgREST Schema Cache Notification
+assert.equal(migrationSql.includes("NOTIFY pgrst, 'reload schema'"), true, 'Must notify PostgREST to reload schema cache');
+
+// 4. Permissions
+assert.equal(migrationSql.includes('GRANT EXECUTE ON FUNCTION public.delete_bill_atomic'), true, 'Must grant execute permissions to anon and authenticated');
+console.log('✅ Supabase Migration Schema, RPC Signatures & PostgREST Cache Notification PASSED.\n');
+
 console.log('============================================================');
-console.log('ALL 12 VERIFICATION TEST SUITES PASSED PERFECTLY!');
+console.log('ALL 13 VERIFICATION TEST SUITES PASSED PERFECTLY!');
 console.log('============================================================\n');

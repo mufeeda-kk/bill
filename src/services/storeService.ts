@@ -719,14 +719,24 @@ export class StoreService {
           this.broadcastChange('BILL_DELETED', { billId });
           return { success: true, message: data.message };
         }
-        if (error && !error.message.includes('function delete_bill_atomic') && !error.message.includes('does not exist')) {
+        
+        // If error is schema cache or function missing, gracefully fallback to direct Supabase transaction
+        const isFunctionMissing = error && (
+          error.code === 'PGRST202' ||
+          error.code === '42883' ||
+          error.message?.toLowerCase().includes('schema cache') ||
+          error.message?.toLowerCase().includes('delete_bill_atomic') ||
+          error.message?.toLowerCase().includes('does not exist')
+        );
+
+        if (error && !isFunctionMissing) {
           return { success: false, message: error.message };
         }
       } catch (err: unknown) {
         console.warn('RPC delete_bill_atomic fallback:', err);
       }
 
-      // Supabase direct fallback if RPC not deployed yet
+      // Supabase direct fallback if RPC not deployed or cached yet
       try {
         const { data: billData } = await supabase
           .from('bills')
@@ -737,6 +747,52 @@ export class StoreService {
         if (billData) {
           if (billData.status !== 'CANCELLED') {
             for (const item of billData.bill_items || []) {
+              // 1. Restore Stock Batches (FIFO batches)
+              const { data: allocs } = await supabase
+                .from('bill_item_batch_allocations')
+                .select('*')
+                .eq('bill_item_id', item.id);
+
+              if (allocs && allocs.length > 0) {
+                for (const alloc of allocs) {
+                  const { data: b } = await supabase
+                    .from('stock_batches')
+                    .select('remaining_quantity')
+                    .eq('id', alloc.batch_id)
+                    .single();
+                  if (b) {
+                    await supabase
+                      .from('stock_batches')
+                      .update({
+                        remaining_quantity: b.remaining_quantity + alloc.quantity,
+                        is_depleted: false,
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq('id', alloc.batch_id);
+                  }
+                }
+              } else {
+                // Fallback to restore latest active batch for this product
+                const { data: latestBatches } = await supabase
+                  .from('stock_batches')
+                  .select('id, remaining_quantity')
+                  .eq('product_id', item.product_id)
+                  .order('created_at', { ascending: false })
+                  .limit(1);
+
+                if (latestBatches && latestBatches.length > 0) {
+                  await supabase
+                    .from('stock_batches')
+                    .update({
+                      remaining_quantity: latestBatches[0].remaining_quantity + item.quantity,
+                      is_depleted: false,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', latestBatches[0].id);
+                }
+              }
+
+              // 2. Restore Product Available Stock
               const { data: prod } = await supabase
                 .from('products')
                 .select('available_stock, current_cost_price')
@@ -766,6 +822,7 @@ export class StoreService {
             }
           }
 
+          // 3. Remove returns, allocations, items, payments, and bill
           const { data: retData } = await supabase.from('returns').select('id').eq('bill_id', billId);
           if (retData && retData.length > 0) {
             await supabase.from('return_items').delete().in('return_id', retData.map((r: { id: string }) => r.id));
