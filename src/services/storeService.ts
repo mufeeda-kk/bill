@@ -33,110 +33,10 @@ export interface AdjustStockPayload {
   device_id?: string;
 }
 
-// Default initial categories
-export const INITIAL_CATEGORIES: Category[] = [
-  { id: 'cat-1', name: 'Shirts & Tops', slug: 'shirts-tops', display_order: 1 },
-  { id: 'cat-2', name: 'Jeans & Trousers', slug: 'jeans-trousers', display_order: 2 },
-  { id: 'cat-3', name: 'T-Shirts & Polos', slug: 't-shirts-polos', display_order: 3 },
-  { id: 'cat-4', name: 'Dresses & Kurtis', slug: 'dresses-kurtis', display_order: 4 },
-  { id: 'cat-5', name: 'Jackets & Outerwear', slug: 'jackets-outerwear', display_order: 5 },
-  { id: 'cat-6', name: 'Accessories', slug: 'accessories', display_order: 6 },
-];
-
-// Initial stock products for shop launch / testing
-export const INITIAL_PRODUCTS: Product[] = [
-  {
-    id: 'prod-1',
-    name: 'Vintage Check Cotton Shirt',
-    sku: 'VCS-SHI-001',
-    category_id: 'cat-1',
-    category_name: 'Shirts & Tops',
-    description: '100% Breathable cotton casual checkered shirt',
-    current_selling_price: 999.00,
-    current_cost_price: 450.00,
-    available_stock: 18,
-    low_stock_threshold: 5,
-    is_active: true,
-  },
-  {
-    id: 'prod-2',
-    name: 'Slim Fit Denim Jeans',
-    sku: 'VCS-JEA-002',
-    category_id: 'cat-2',
-    category_name: 'Jeans & Trousers',
-    description: 'Stretchable vintage wash blue denim',
-    current_selling_price: 1499.00,
-    current_cost_price: 750.00,
-    available_stock: 12,
-    low_stock_threshold: 4,
-    is_active: true,
-  },
-  {
-    id: 'prod-3',
-    name: 'Classic Vintage Polo Tee',
-    sku: 'VCS-TSH-003',
-    category_id: 'cat-3',
-    category_name: 'T-Shirts & Polos',
-    description: 'Premium pique cotton collar t-shirt',
-    current_selling_price: 699.00,
-    current_cost_price: 280.00,
-    available_stock: 25,
-    low_stock_threshold: 6,
-    is_active: true,
-  },
-  {
-    id: 'prod-4',
-    name: 'Retro Corduroy Overshirt',
-    sku: 'VCS-SHI-004',
-    category_id: 'cat-1',
-    category_name: 'Shirts & Tops',
-    description: 'Heavyweight ribbed corduroy autumn jacket-shirt',
-    current_selling_price: 1799.00,
-    current_cost_price: 850.00,
-    available_stock: 8,
-    low_stock_threshold: 3,
-    is_active: true,
-  },
-  {
-    id: 'prod-5',
-    name: 'Floral Bohemian Summer Dress',
-    sku: 'VCS-DRE-005',
-    category_id: 'cat-4',
-    category_name: 'Dresses & Kurtis',
-    description: 'Lightweight rayon vintage print midi dress',
-    current_selling_price: 1299.00,
-    current_cost_price: 520.00,
-    available_stock: 10,
-    low_stock_threshold: 3,
-    is_active: true,
-  },
-  {
-    id: 'prod-6',
-    name: 'Vintage Distressed Leather Belt',
-    sku: 'VCS-ACC-006',
-    category_id: 'cat-6',
-    category_name: 'Accessories',
-    description: 'Full-grain genuine leather with brass antique buckle',
-    current_selling_price: 499.00,
-    current_cost_price: 180.00,
-    available_stock: 15,
-    low_stock_threshold: 5,
-    is_active: true,
-  },
-];
-
-// Initial Batches matching initial products for FIFO
-export const INITIAL_BATCHES: StockBatch[] = INITIAL_PRODUCTS.map((p, idx) => ({
-  id: `batch-${idx + 1}`,
-  product_id: p.id,
-  batch_number: `BATCH-INIT-00${idx + 1}`,
-  initial_quantity: p.available_stock,
-  remaining_quantity: p.available_stock,
-  unit_cost: p.current_cost_price,
-  selling_price: p.current_selling_price,
-  received_date: new Date(Date.now() - (idx + 1) * 86400000).toISOString(),
-  is_depleted: false,
-}));
+// Clean Store State for Customer Handover (Brand-new installation from zero)
+export const INITIAL_CATEGORIES: Category[] = [];
+export const INITIAL_PRODUCTS: Product[] = [];
+export const INITIAL_BATCHES: StockBatch[] = [];
 
 export const INITIAL_SETTINGS: StoreSettings = {
   id: 'settings-1',
@@ -154,6 +54,28 @@ export const INITIAL_SETTINGS: StoreSettings = {
 
 // Local storage keys
 const STORAGE_PREFIX = 'vcs_store_';
+
+// Customer Handover Clean State Identifier
+const HANDOVER_RESET_VERSION_KEY = 'vcs_customer_handover_v20261123';
+
+function ensureCustomerHandoverCleanState() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const isCleaned = localStorage.getItem(HANDOVER_RESET_VERSION_KEY);
+    if (!isCleaned) {
+      // Wipe all demo/test business data from local storage
+      const businessKeys = ['bills', 'products', 'categories', 'batches', 'purchases', 'expenses', 'movements'];
+      for (const k of businessKeys) {
+        localStorage.removeItem(STORAGE_PREFIX + k);
+      }
+      localStorage.setItem(HANDOVER_RESET_VERSION_KEY, 'true');
+    }
+  } catch (e) {
+    console.warn('Local storage check warning:', e);
+  }
+}
+ensureCustomerHandoverCleanState();
+
 function loadLocal<T>(key: string, defaultValue: T): T {
   try {
     const val = localStorage.getItem(STORAGE_PREFIX + key);
@@ -1109,6 +1031,55 @@ export class StoreService {
       movements: loadLocal('movements', []),
       devices: loadLocal('devices', []),
     }, null, 2);
+  }
+
+  // --- COMPLETE CUSTOMER HANDOVER DATA RESET ---
+  async resetAllBusinessData(passcode: string): Promise<{ success: boolean; message?: string }> {
+    const settings = await this.getSettings();
+    if (passcode.trim() !== (settings.enrollment_passcode || 'VCS786')) {
+      return { success: false, message: 'Invalid shop master passcode' };
+    }
+
+    if (supabase) {
+      try {
+        await supabase.rpc('reset_handover_data_atomic', { p_passcode: passcode });
+      } catch (rpcErr) {
+        console.warn('RPC reset attempt:', rpcErr);
+      }
+
+      try {
+        await supabase.from('return_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('returns').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('bill_item_batch_allocations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('bill_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('bills').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('stock_movements').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('stock_batches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('stock_purchase_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('stock_purchases').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('expenses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('categories').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      } catch (err: unknown) {
+        console.warn('Supabase direct deletion warning:', err);
+      }
+    }
+
+    saveLocal('bills', []);
+    saveLocal('products', []);
+    saveLocal('categories', []);
+    saveLocal('batches', []);
+    saveLocal('purchases', []);
+    saveLocal('expenses', []);
+    saveLocal('movements', []);
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(HANDOVER_RESET_VERSION_KEY, 'true');
+    }
+
+    this.broadcastChange('STORE_RESET_HANDOVER', {});
+    return { success: true, message: 'All business data wiped successfully. Store is ready for fresh customer launch.' };
   }
 
   // Backup: Restore store JSON

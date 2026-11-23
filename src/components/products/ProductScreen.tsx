@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { 
   Plus, Search, Edit2, Trash2, Boxes, X, 
-  AlertCircle, Check, ChevronDown 
+  AlertCircle, Check, ChevronDown, Shirt 
 } from 'lucide-react';
 import { formatCurrency, generateSKU } from '../../lib/formatters';
 import { Product } from '../../types';
@@ -395,8 +395,20 @@ export const ProductScreen: React.FC = () => {
         })}
 
         {filteredProducts.length === 0 && (
-          <div className="col-span-full py-12 text-center text-slate-400 bg-white rounded-xl border border-slate-200">
-            No products found matching your search.
+          <div className="col-span-full py-16 text-center text-slate-400 bg-white rounded-xl border border-slate-200 p-6">
+            <Shirt className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+            <h3 className="font-bold text-sm text-slate-700">No Clothing Products Yet</h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+              Your store catalog is ready for fresh inventory. Tap the "+ Add Product" button above to add your first clothing model.
+            </p>
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs inline-flex items-center space-x-1.5 shadow-sm transition active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add First Product</span>
+            </button>
           </div>
         )}
       </div>

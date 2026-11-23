@@ -229,9 +229,12 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ onBillSuccess }) =
             })}
 
             {filteredProducts.length === 0 && (
-              <div className="col-span-full py-12 text-center text-slate-400">
-                <Shirt className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-                <p className="font-medium text-xs">No garments found matching your search.</p>
+              <div className="col-span-full py-14 text-center text-slate-400">
+                <Shirt className="w-12 h-12 mx-auto text-slate-300 mb-2" />
+                <h3 className="font-bold text-sm text-slate-700">Catalog is Fresh & Empty</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Add clothing garments in the Products tab to begin billing.
+                </p>
               </div>
             )}
           </div>

@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
-import { Smartphone, ShieldCheck, Download, Upload, CheckCircle, Store, LogOut, AlertTriangle, Database } from 'lucide-react';
+import { 
+  Smartphone, ShieldCheck, Download, Upload, 
+  CheckCircle, Store, LogOut, AlertTriangle, Database, Trash2 
+} from 'lucide-react';
 import { storeService } from '../../services/storeService';
 import { formatKolkataDateTime } from '../../lib/formatters';
 import { isSupabaseConfigured, getSupabaseCredentials } from '../../lib/supabase';
@@ -9,11 +12,15 @@ import { DatabaseConfigModal } from './DatabaseConfigModal';
 export const SettingsScreen: React.FC = () => {
   const { 
     settings, updateSettings, authorizedDevices, 
-    revokeDevice, currentDevice, logoutDevice, refreshData 
+    revokeDevice, currentDevice, logoutDevice, refreshData, resetAllBusinessData 
   } = useStore();
 
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const currentCreds = getSupabaseCredentials();
+
+  const [resetPasscode, setResetPasscode] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
 
   const [storeName, setStoreName] = useState(settings.store_name || 'VINTAGE CLOTHING STORE');
   const [tagline, setTagline] = useState(settings.tagline || 'Exclusive Men & Women Fashion');
@@ -370,6 +377,52 @@ export const SettingsScreen: React.FC = () => {
               <span>Select Backup File</span>
               <input type="file" accept=".json" onChange={handleRestoreFile} className="hidden" />
             </label>
+          </div>
+        </div>
+
+        {/* Customer Handover: Complete Business Data Reset */}
+        <div className="p-4 bg-rose-50 rounded-xl border border-rose-300 text-xs space-y-3">
+          <div className="flex items-center space-x-2 text-rose-900 font-black text-sm">
+            <Trash2 className="w-5 h-5 text-rose-600 shrink-0" />
+            <span>Customer Handover: Complete Business Data Reset</span>
+          </div>
+
+          <p className="text-rose-800 text-[11px] leading-relaxed">
+            Wipes all existing testing products, inventory stock, sales history, bills, and payments from the central database and all connected phones. Store branding and phone authorizations remain preserved. Store will start 100% fresh from zero.
+          </p>
+
+          {resetMessage && (
+            <div className="p-2.5 bg-white border border-rose-300 rounded-lg text-rose-900 font-bold text-xs">
+              {resetMessage}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center pt-1">
+            <input
+              type="password"
+              placeholder="Enter passcode to confirm (VCS786)"
+              value={resetPasscode}
+              onChange={(e) => setResetPasscode(e.target.value)}
+              className="px-3 py-2 bg-white border border-rose-300 rounded-xl font-mono text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+            <button
+              type="button"
+              disabled={isResetting}
+              onClick={async () => {
+                if (resetPasscode.trim() !== (settings.enrollment_passcode || 'VCS786')) {
+                  setResetMessage('Invalid shop master passcode. Default is VCS786');
+                  return;
+                }
+                setIsResetting(true);
+                const res = await resetAllBusinessData(resetPasscode);
+                setIsResetting(false);
+                setResetMessage(res.message || 'Store reset completed successfully');
+                setResetPasscode('');
+              }}
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-black rounded-xl text-xs shadow-md transition disabled:opacity-50"
+            >
+              {isResetting ? 'Resetting Store Data...' : 'Execute Complete Data Reset (Start from Zero)'}
+            </button>
           </div>
         </div>
 

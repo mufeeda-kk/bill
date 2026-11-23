@@ -70,6 +70,9 @@ interface StoreContextType {
   // Stock Purchases
   addStockPurchase: (payload: AddPurchasePayload) => Promise<{ success: boolean; message?: string }>;
 
+  // Customer Handover Reset
+  resetAllBusinessData: (passcode: string) => Promise<{ success: boolean; message?: string }>;
+
   // Stock Adjustments
   adjustStock: (payload: AdjustStockPayload) => Promise<{ success: boolean; message?: string }>;
 
@@ -508,6 +511,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return res;
   };
 
+  // Customer Handover Reset
+  const resetAllBusinessData = async (passcode: string) => {
+    const res = await storeService.resetAllBusinessData(passcode);
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
   // Expenses
   const addExpense = async (expense: Omit<Expense, 'id'>) => {
     const res = await storeService.addExpense({
@@ -579,6 +591,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         expenses,
         addExpense,
         deleteExpense,
+        resetAllBusinessData,
         dashboardMetrics,
         dateRange,
         setDateRange,
