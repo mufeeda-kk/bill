@@ -1,0 +1,85 @@
+{
+  "backup_metadata": {
+    "store_name": "VINTAGE CLOTHING STORE",
+    "timestamp": "2026-11-23T11:25:00.000Z",
+    "description": "One-Time Business Data Pre-Clear Snapshot (Before complete data clear)",
+    "preserved_tables": ["store_settings", "authorized_devices"],
+    "cleared_tables": [
+      "return_items",
+      "returns",
+      "bill_item_batch_allocations",
+      "bill_items",
+      "payments",
+      "bills",
+      "stock_movements",
+      "stock_batches",
+      "stock_purchase_items",
+      "stock_purchases",
+      "expenses",
+      "products",
+      "categories",
+      "audit_logs"
+    ]
+  },
+  "store_settings": {
+    "store_name": "VINTAGE CLOTHING STORE",
+    "tagline": "Exclusive Men & Women Fashion",
+    "phone": "+91 98765 43210",
+    "address": "Shop #4, Market Road, Kerala, India",
+    "upi_id": "vintageclothing@upi",
+    "currency_symbol": "₹",
+    "invoice_prefix": "VCS",
+    "low_stock_default_threshold": 5,
+    "enrollment_passcode": "VCS786",
+    "max_authorized_devices": 3
+  },
+  "sample_records_cleared": {
+    "categories": [
+      { "id": "cat-1", "name": "Shirts & Tops", "slug": "shirts-tops", "display_order": 1 },
+      { "id": "cat-2", "name": "Jeans & Trousers", "slug": "jeans-trousers", "display_order": 2 },
+      { "id": "cat-3", "name": "T-Shirts & Polos", "slug": "t-shirts-polos", "display_order": 3 },
+      { "id": "cat-4", "name": "Dresses & Kurtis", "slug": "dresses-kurtis", "display_order": 4 },
+      { "id": "cat-5", "name": "Jackets & Outerwear", "slug": "jackets-outerwear", "display_order": 5 },
+      { "id": "cat-6", "name": "Accessories", "slug": "accessories", "display_order": 6 }
+    ],
+    "sample_products": [
+      {
+        "id": "prod-1",
+        "name": "Vintage Check Cotton Shirt",
+        "sku": "VCS-SHI-001",
+        "category_id": "cat-1",
+        "category_name": "Shirts & Tops",
+        "current_selling_price": 999.00,
+        "current_cost_price": 450.00,
+        "available_stock": 18
+      },
+      {
+        "id": "prod-2",
+        "name": "Slim Fit Denim Jeans",
+        "sku": "VCS-JEA-002",
+        "category_id": "cat-2",
+        "category_name": "Jeans & Trousers",
+        "current_selling_price": 1499.00,
+        "current_cost_price": 750.00,
+        "available_stock": 12
+      },
+      {
+        "id": "prod-3",
+        "name": "Classic Vintage Polo Tee",
+        "sku": "VCS-TSH-003",
+        "category_id": "cat-3",
+        "category_name": "T-Shirts & Polos",
+        "current_selling_price": 699.00,
+        "current_cost_price": 300.00,
+        "available_stock": 25
+      }
+    ],
+    "sample_bills": [
+      "VCS-20261122-0001",
+      "VCS-20261122-0002",
+      "VCS-20261122-0003",
+      "VCS-20261122-0004",
+      "VCS-20261122-0005"
+    ]
+  }
+}
