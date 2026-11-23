@@ -37,6 +37,7 @@ interface StoreContextType {
   setSearchQuery: (query: string) => void;
   addProduct: (product: Omit<Product, 'id'>) => Promise<Product>;
   updateProduct: (id: string, updates: Partial<Product>) => Promise<Product | null>;
+  deleteProduct: (productId: string) => Promise<{ success: boolean; message: string; action: 'DELETED' | 'ARCHIVED' }>;
 
   // Cart & POS Billing
   cart: CartItem[];
@@ -66,6 +67,14 @@ interface StoreContextType {
   lastCompletedBill: Bill | null;
   setLastCompletedBill: (bill: Bill | null) => void;
   cancelBill: (billId: string, reason: string) => Promise<{ success: boolean; message?: string }>;
+  deleteBill: (billId: string) => Promise<{ success: boolean; message: string }>;
+
+  // Customers
+  getCustomers: () => Promise<{ name: string; phone?: string; total_bills: number; total_spent: number; last_visit: string }[]>;
+  deleteCustomer: (phone?: string, name?: string) => Promise<{ success: boolean; message: string }>;
+
+  // History & Movement Management
+  deleteStockMovement: (movementId: string) => Promise<{ success: boolean; message: string }>;
 
   // Stock Purchases
   addStockPurchase: (payload: AddPurchasePayload) => Promise<{ success: boolean; message?: string }>;
@@ -511,6 +520,46 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return res;
   };
 
+  // Delete Bill (With automatic inventory restoration & metric recalculation)
+  const deleteBill = async (billId: string) => {
+    const res = await storeService.deleteBill(billId, currentDevice?.token);
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
+  // Delete Product
+  const deleteProduct = async (productId: string) => {
+    const res = await storeService.deleteProduct(productId);
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
+  // Customers
+  const getCustomers = async () => {
+    return await storeService.getCustomers();
+  };
+
+  const deleteCustomer = async (phone?: string, name?: string) => {
+    const res = await storeService.deleteCustomer(phone, name);
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
+  // Delete Stock Movement History
+  const deleteStockMovement = async (movementId: string) => {
+    const res = await storeService.deleteStockMovement(movementId);
+    if (res.success) {
+      await refreshData();
+    }
+    return res;
+  };
+
   // Customer Handover Reset
   const resetAllBusinessData = async (passcode: string) => {
     const res = await storeService.resetAllBusinessData(passcode);
@@ -561,6 +610,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setSearchQuery,
         addProduct,
         updateProduct,
+        deleteProduct,
         cart,
         isMobileCartOpen,
         setIsMobileCartOpen,
@@ -586,6 +636,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         lastCompletedBill,
         setLastCompletedBill,
         cancelBill,
+        deleteBill,
+        getCustomers,
+        deleteCustomer,
+        deleteStockMovement,
         addStockPurchase,
         adjustStock,
         expenses,

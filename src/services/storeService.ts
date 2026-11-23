@@ -387,6 +387,66 @@ export class StoreService {
     return null;
   }
 
+  // --- DELETE PRODUCT (SAFE ARCHIVE IF TRANSACTIONS EXIST OR PERMANENT DELETE) ---
+  async deleteProduct(productId: string): Promise<{ success: boolean; message: string; action: 'DELETED' | 'ARCHIVED' }> {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('delete_product_atomic', {
+          p_product_id: productId,
+        });
+        if (!error && data?.success) {
+          this.broadcastChange('PRODUCTS_CHANGED', { productId });
+          return { success: true, message: data.message, action: data.action || 'DELETED' };
+        }
+      } catch (rpcErr) {
+        console.warn('RPC delete_product_atomic fallback:', rpcErr);
+      }
+
+      // Supabase direct fallback
+      try {
+        const { count } = await supabase
+          .from('bill_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('product_id', productId);
+
+        if (count && count > 0) {
+          await supabase.from('products').update({ is_active: false, available_stock: 0, updated_at: new Date().toISOString() }).eq('id', productId);
+          this.broadcastChange('PRODUCTS_CHANGED', { productId });
+          return { success: true, action: 'ARCHIVED', message: `Product archived to protect ${count} historical bill reference(s).` };
+        } else {
+          await supabase.from('stock_batches').delete().eq('product_id', productId);
+          await supabase.from('stock_purchase_items').delete().eq('product_id', productId);
+          await supabase.from('stock_movements').delete().eq('product_id', productId);
+          await supabase.from('products').delete().eq('id', productId);
+          this.broadcastChange('PRODUCTS_CHANGED', { productId });
+          return { success: true, action: 'DELETED', message: 'Product deleted permanently.' };
+        }
+      } catch (err: unknown) {
+        console.error('Direct product delete error:', err);
+      }
+    }
+
+    const prods = loadLocal<Product[]>('products', INITIAL_PRODUCTS);
+    const bills = loadLocal<Bill[]>('bills', []);
+    const hasBills = bills.some((b) => b.items?.some((i) => i.product_id === productId));
+
+    const idx = prods.findIndex((p) => p.id === productId);
+    if (idx === -1) return { success: false, action: 'DELETED', message: 'Product not found' };
+
+    if (hasBills) {
+      prods[idx].is_active = false;
+      prods[idx].available_stock = 0;
+      saveLocal('products', prods);
+      this.broadcastChange('PRODUCTS_CHANGED', { productId });
+      return { success: true, action: 'ARCHIVED', message: 'Product archived to protect historical bill references.' };
+    } else {
+      prods.splice(idx, 1);
+      saveLocal('products', prods);
+      this.broadcastChange('PRODUCTS_CHANGED', { productId });
+      return { success: true, action: 'DELETED', message: 'Product deleted permanently.' };
+    }
+  }
+
   // --- BILLING (ATOMIC + FIFO COGS) ---
   async createBill(payload: {
     items: CartItem[];
@@ -645,6 +705,240 @@ export class StoreService {
 
     this.broadcastChange('BILL_CANCELLED', { billId, reason });
     return { success: true, message: 'Bill cancelled and stock restored successfully' };
+  }
+
+  // --- DELETE BILL (ATOMIC INVENTORY RESTORATION, PAYMENT REMOVAL & MULTI-DEVICE SYNC) ---
+  async deleteBill(billId: string, deviceId?: string): Promise<{ success: boolean; message: string; bill?: Bill }> {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('delete_bill_atomic', {
+          p_bill_id: billId,
+          p_device_id: deviceId || null,
+        });
+        if (!error && data?.success) {
+          this.broadcastChange('BILL_DELETED', { billId });
+          return { success: true, message: data.message };
+        }
+        if (error && !error.message.includes('function delete_bill_atomic') && !error.message.includes('does not exist')) {
+          return { success: false, message: error.message };
+        }
+      } catch (err: unknown) {
+        console.warn('RPC delete_bill_atomic fallback:', err);
+      }
+
+      // Supabase direct fallback if RPC not deployed yet
+      try {
+        const { data: billData } = await supabase
+          .from('bills')
+          .select('*, bill_items(*)')
+          .eq('id', billId)
+          .single();
+
+        if (billData) {
+          if (billData.status !== 'CANCELLED') {
+            for (const item of billData.bill_items || []) {
+              const { data: prod } = await supabase
+                .from('products')
+                .select('available_stock, current_cost_price')
+                .eq('id', item.product_id)
+                .single();
+
+              if (prod) {
+                const newStock = prod.available_stock + item.quantity;
+                await supabase
+                  .from('products')
+                  .update({ available_stock: newStock, updated_at: new Date().toISOString() })
+                  .eq('id', item.product_id);
+
+                await supabase.from('stock_movements').insert({
+                  product_id: item.product_id,
+                  movement_type: 'CANCEL_IN',
+                  quantity_change: item.quantity,
+                  previous_quantity: prod.available_stock,
+                  new_quantity: newStock,
+                  unit_cost: item.unit_cost_price,
+                  reference_type: 'BILL',
+                  reference_id: billId,
+                  reason: `Stock restored due to deleted bill ${billData.invoice_number}`,
+                  device_id: deviceId || null,
+                });
+              }
+            }
+          }
+
+          const { data: retData } = await supabase.from('returns').select('id').eq('bill_id', billId);
+          if (retData && retData.length > 0) {
+            await supabase.from('return_items').delete().in('return_id', retData.map((r: { id: string }) => r.id));
+          }
+          await supabase.from('returns').delete().eq('bill_id', billId);
+
+          const { data: biData } = await supabase.from('bill_items').select('id').eq('bill_id', billId);
+          if (biData && biData.length > 0) {
+            await supabase.from('bill_item_batch_allocations').delete().in('bill_item_id', biData.map((b: { id: string }) => b.id));
+          }
+          await supabase.from('bill_items').delete().eq('bill_id', billId);
+          await supabase.from('payments').delete().eq('bill_id', billId);
+          await supabase.from('bills').delete().eq('id', billId);
+
+          this.broadcastChange('BILL_DELETED', { billId });
+          return { success: true, message: `Bill ${billData.invoice_number} deleted and inventory restored.` };
+        }
+      } catch (directErr: unknown) {
+        console.error('Direct bill delete error:', directErr);
+      }
+    }
+
+    // Local Storage execution & Multi-Device sync
+    const bills = loadLocal<Bill[]>('bills', []);
+    const billIdx = bills.findIndex((b) => b.id === billId);
+    if (billIdx === -1) return { success: false, message: 'Bill not found or already deleted' };
+
+    const bill = bills[billIdx];
+    const prods = loadLocal<Product[]>('products', INITIAL_PRODUCTS);
+    const batches = loadLocal<StockBatch[]>('batches', INITIAL_BATCHES);
+    const movements = loadLocal<StockMovement[]>('movements', []);
+
+    // Restore stock ONLY if bill was NOT cancelled (prevents duplicate stock restoration)
+    if (bill.status !== 'CANCELLED') {
+      for (const item of bill.items || []) {
+        const prod = prods.find((p) => p.id === item.product_id);
+        if (prod) {
+          const prev = prod.available_stock;
+          prod.available_stock += item.quantity;
+          prod.updated_at = new Date().toISOString();
+
+          movements.unshift({
+            id: 'mov-' + Date.now() + Math.random().toString(36).slice(2, 5),
+            product_id: prod.id,
+            product_name: prod.name,
+            product_sku: prod.sku,
+            movement_type: 'CANCEL_IN',
+            quantity_change: item.quantity,
+            previous_quantity: prev,
+            new_quantity: prod.available_stock,
+            unit_cost: item.unit_cost_price,
+            reference_type: 'BILL',
+            reason: `Stock restored due to deleted bill: ${bill.invoice_number}`,
+            device_id: deviceId,
+            created_at: new Date().toISOString(),
+          });
+        }
+
+        const pBatch = batches.find((b) => b.product_id === item.product_id);
+        if (pBatch) {
+          pBatch.remaining_quantity += item.quantity;
+          pBatch.is_depleted = false;
+        }
+      }
+      saveLocal('products', prods);
+      saveLocal('batches', batches);
+      saveLocal('movements', movements);
+    }
+
+    // Remove bill completely
+    bills.splice(billIdx, 1);
+    saveLocal('bills', bills);
+
+    this.broadcastChange('BILL_DELETED', { billId });
+    return { success: true, message: `Bill ${bill.invoice_number} deleted and inventory restored.` };
+  }
+
+  // --- CUSTOMER MANAGEMENT (VIEW ALL CUSTOMERS & SAFE DELETE) ---
+  async getCustomers(): Promise<{ name: string; phone?: string; total_bills: number; total_spent: number; last_visit: string }[]> {
+    const bills = await this.getBills();
+    const map = new Map<string, { name: string; phone?: string; total_bills: number; total_spent: number; last_visit: string }>();
+
+    for (const b of bills) {
+      const phone = (b.customer_phone || '').trim();
+      const name = (b.customer_name || 'Walk-in Customer').trim();
+      if (!phone && (name === 'Walk-in Customer' || !name)) continue;
+
+      const key = phone ? `phone:${phone}` : `name:${name.toLowerCase()}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.total_bills += 1;
+        existing.total_spent += (b.grand_total || 0);
+        if (new Date(b.bill_date).getTime() > new Date(existing.last_visit).getTime()) {
+          existing.last_visit = b.bill_date;
+        }
+      } else {
+        map.set(key, {
+          name,
+          phone: phone || undefined,
+          total_bills: 1,
+          total_spent: b.grand_total || 0,
+          last_visit: b.bill_date,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => new Date(b.last_visit).getTime() - new Date(a.last_visit).getTime());
+  }
+
+  async deleteCustomer(phone?: string, name?: string): Promise<{ success: boolean; message: string }> {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('delete_customer_atomic', {
+          p_phone: phone || null,
+          p_name: name || null,
+        });
+        if (!error && data?.success) {
+          this.broadcastChange('CUSTOMER_DELETED', { phone, name });
+          return { success: true, message: data.message };
+        }
+      } catch (rpcErr) {
+        console.warn('RPC delete_customer_atomic fallback:', rpcErr);
+      }
+
+      try {
+        if (phone) {
+          await supabase.from('bills').update({ customer_phone: null, customer_name: 'Walk-in Customer' }).eq('customer_phone', phone);
+        } else if (name) {
+          await supabase.from('bills').update({ customer_name: 'Walk-in Customer' }).eq('customer_name', name);
+        }
+        this.broadcastChange('CUSTOMER_DELETED', { phone, name });
+        return { success: true, message: 'Customer information removed safely.' };
+      } catch (err: unknown) {
+        console.error('Direct customer delete error:', err);
+      }
+    }
+
+    const bills = loadLocal<Bill[]>('bills', []);
+    let modified = false;
+    for (const b of bills) {
+      if ((phone && b.customer_phone === phone) || (name && b.customer_name === name)) {
+        b.customer_name = 'Walk-in Customer';
+        b.customer_phone = undefined;
+        modified = true;
+      }
+    }
+    if (modified) {
+      saveLocal('bills', bills);
+    }
+    this.broadcastChange('CUSTOMER_DELETED', { phone, name });
+    return { success: true, message: 'Customer information removed safely.' };
+  }
+
+  // --- DELETE STOCK MOVEMENT (HISTORY MANAGEMENT) ---
+  async deleteStockMovement(movementId: string): Promise<{ success: boolean; message: string }> {
+    if (supabase) {
+      try {
+        await supabase.from('stock_movements').delete().eq('id', movementId);
+        this.broadcastChange('MOVEMENTS_CHANGED', { movementId });
+        return { success: true, message: 'Stock adjustment record deleted.' };
+      } catch (err: unknown) {
+        console.error('Supabase movement delete error:', err);
+      }
+    }
+
+    const movements = loadLocal<StockMovement[]>('movements', []);
+    const idx = movements.findIndex((m) => m.id === movementId);
+    if (idx !== -1) {
+      movements.splice(idx, 1);
+      saveLocal('movements', movements);
+      this.broadcastChange('MOVEMENTS_CHANGED', { movementId });
+    }
+    return { success: true, message: 'Stock adjustment record deleted.' };
   }
 
   // --- STOCK PURCHASES ---

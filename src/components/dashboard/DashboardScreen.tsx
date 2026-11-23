@@ -1,9 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { 
   ShoppingBag, Smartphone, CreditCard, 
   Shirt, Boxes, AlertTriangle, ArrowRight, Plus, 
-  Receipt, Share2, Eye 
+  Receipt, Share2, Eye, Trash2, CheckCircle2, X
 } from 'lucide-react';
 import { formatCurrency, formatKolkataDateTime } from '../../lib/formatters';
 import { openWhatsAppDirect } from '../../lib/whatsapp';
@@ -17,8 +17,31 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, onSelectBill }) => {
   const { 
     dashboardMetrics, dateRange, setDateRange, 
-    bills, products, settings 
+    bills, products, settings, deleteBill 
   } = useStore();
+
+  const [deletingBill, setDeletingBill] = useState<Bill | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const handleConfirmDelete = async () => {
+    if (!deletingBill) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    const res = await deleteBill(deletingBill.id);
+    setIsDeleting(false);
+
+    if (res.success) {
+      const inv = deletingBill.invoice_number;
+      setDeletingBill(null);
+      setSuccessMsg(`Bill ${inv} deleted and stock restored.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } else {
+      setDeleteError(res.message || 'Failed to delete bill');
+    }
+  };
 
   const m = dashboardMetrics || {
     total_sales: 0,
@@ -44,6 +67,19 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
 
   return (
     <div className="space-y-4 pb-20 md:pb-6">
+      {/* Success Notification Banner */}
+      {successMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl flex items-center justify-between text-xs font-bold animate-in fade-in">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <button onClick={() => setSuccessMsg(null)} className="text-emerald-600 hover:text-emerald-800">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Welcome & Date Filter Bar */}
       <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -279,6 +315,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
                       <Share2 className="w-4 h-4" />
                     </button>
                   )}
+                  <button
+                    onClick={() => {
+                      setDeletingBill(b);
+                      setDeleteError(null);
+                    }}
+                    className="p-1.5 text-rose-400 hover:text-rose-600 rounded-lg hover:bg-rose-50"
+                    title="Delete Bill & Restore Stock"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -291,6 +337,97 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deletingBill && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="bg-rose-600 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="w-5 h-5 text-rose-200 shrink-0" />
+                <div>
+                  <h3 className="font-bold text-sm tracking-tight">Delete Bill & Restore Stock</h3>
+                  <p className="text-[11px] text-rose-100">{deletingBill.invoice_number}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeletingBill(null)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-rose-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 text-xs">
+              {deleteError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+
+              <p className="text-slate-700 leading-relaxed font-medium">
+                Are you sure you want to permanently delete bill <span className="font-mono font-bold text-slate-900">{deletingBill.invoice_number}</span>?
+              </p>
+
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5 text-[11px]">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Customer:</span>
+                  <span className="font-bold text-slate-800">{deletingBill.customer_name || 'Walk-in'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Bill Amount:</span>
+                  <span className="font-black text-slate-900">{formatCurrency(deletingBill.grand_total, false)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Payment Method:</span>
+                  <span className="font-bold text-slate-800">{deletingBill.payment_method}</span>
+                </div>
+              </div>
+
+              {/* Items returning to stock */}
+              {deletingBill.items && deletingBill.items.length > 0 && (
+                <div className="border border-emerald-200 bg-emerald-50/60 p-3 rounded-xl space-y-2">
+                  <div className="font-bold text-emerald-900 flex items-center space-x-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Inventory will automatically be restored:</span>
+                  </div>
+                  <ul className="space-y-1 pl-4 list-disc text-emerald-800 text-[11px]">
+                    {deletingBill.items.map((it, i) => (
+                      <li key={i}>
+                        <span className="font-bold">{it.product_name}</span>: +{it.quantity} units returned to inventory
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-400">
+                Today's sales total, payment receipts, and completed bills count will update immediately.
+              </p>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDeletingBill(null)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmDelete}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isDeleting ? 'Deleting...' : 'Confirm Delete & Restore'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -271,6 +271,120 @@ class StoreEngine {
     bill.status = 'CANCELLED';
     return { success: true };
   }
+
+  // Delete Bill (With automatic inventory restoration and metric recalculation)
+  deleteBill(billId) {
+    const idx = this.bills.findIndex((b) => b.id === billId);
+    if (idx === -1) return { success: false, message: 'Bill not found' };
+
+    const bill = this.bills[idx];
+
+    // Restore stock ONLY if bill was NOT cancelled (prevents duplicate stock restoration)
+    if (bill.status !== 'CANCELLED') {
+      for (const item of bill.items) {
+        const prod = this.products.find((p) => p.id === item.product_id);
+        if (prod) {
+          const prev = prod.available_stock;
+          prod.available_stock += item.quantity;
+          this.movements.push({
+            id: 'mov-' + Date.now() + Math.random(),
+            product_id: prod.id,
+            movement_type: 'CANCEL_IN',
+            quantity_change: item.quantity,
+            previous_quantity: prev,
+            new_quantity: prod.available_stock,
+            reason: `Restored due to deleted bill ${bill.invoice_number}`,
+          });
+        }
+        const batch = this.batches.find((b) => b.product_id === item.product_id);
+        if (batch) {
+          batch.remaining_quantity += item.quantity;
+          batch.is_depleted = false;
+        }
+      }
+    }
+
+    this.bills.splice(idx, 1);
+    return { success: true, message: `Bill ${bill.invoice_number} deleted and stock restored` };
+  }
+
+  // Customers Management
+  getCustomers() {
+    const map = new Map();
+    for (const b of this.bills) {
+      const phone = (b.customer_phone || '').trim();
+      const name = (b.customer_name || 'Walk-in Customer').trim();
+      if (!phone && (name === 'Walk-in Customer' || !name)) continue;
+      const key = phone ? `phone:${phone}` : `name:${name.toLowerCase()}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.total_bills += 1;
+        existing.total_spent += b.grand_total;
+      } else {
+        map.set(key, { name, phone: phone || undefined, total_bills: 1, total_spent: b.grand_total });
+      }
+    }
+    return Array.from(map.values());
+  }
+
+  deleteCustomer(phone, name) {
+    for (const b of this.bills) {
+      if ((phone && b.customer_phone === phone) || (name && b.customer_name === name)) {
+        b.customer_name = 'Walk-in Customer';
+        b.customer_phone = undefined;
+      }
+    }
+    return { success: true, message: 'Customer data removed safely.' };
+  }
+
+  // Product Deletion
+  deleteProduct(productId) {
+    const hasBills = this.bills.some((b) => b.items.some((it) => it.product_id === productId));
+    const idx = this.products.findIndex((p) => p.id === productId);
+    if (idx === -1) return { success: false, message: 'Product not found' };
+
+    if (hasBills) {
+      this.products[idx].is_active = false;
+      this.products[idx].available_stock = 0;
+      return { success: true, action: 'ARCHIVED', message: 'Product archived safely' };
+    } else {
+      this.products.splice(idx, 1);
+      return { success: true, action: 'DELETED', message: 'Product deleted permanently' };
+    }
+  }
+
+  // Stock Movement Deletion
+  deleteStockMovement(movementId) {
+    const idx = this.movements.findIndex((m) => m.id === movementId);
+    if (idx !== -1) {
+      this.movements.splice(idx, 1);
+      return { success: true };
+    }
+    return { success: false };
+  }
+
+  // Calculate Metrics
+  getMetrics() {
+    const completed = this.bills.filter((b) => b.status === 'COMPLETED');
+    const totalSales = completed.reduce((s, b) => s + b.grand_total, 0);
+    const todayCash = completed
+      .filter((b) => b.payment_method === 'CASH')
+      .reduce((s, b) => s + b.amount_paid, 0);
+    const todayUpi = completed
+      .filter((b) => b.payment_method === 'UPI')
+      .reduce((s, b) => s + b.amount_paid, 0);
+    const todayCard = completed
+      .filter((b) => b.payment_method === 'CARD')
+      .reduce((s, b) => s + b.amount_paid, 0);
+
+    return {
+      total_sales: totalSales,
+      completed_bills: completed.length,
+      today_cash: todayCash,
+      today_upi: todayUpi,
+      today_card: todayCard,
+    };
+  }
 }
 
 // -------------------------------------------------------------------
@@ -521,6 +635,138 @@ const gitignoreContent = readFileSync(gitignorePath, 'utf8');
 assert.equal(gitignoreContent.includes('.env'), true, '.gitignore must ignore .env files');
 console.log('✅ Gitignore protection, placeholder-only .env.example, and secret audit PASSED.\n');
 
+// -------------------------------------------------------------------
+// TEST 10: BILL DELETION, STOCK RESTORATION & DASHBOARD METRICS RECALCULATION
+// -------------------------------------------------------------------
+console.log('TEST 10: Bill Deletion, Stock Restoration & Dashboard Recalculation');
+const storeDelete = new StoreEngine();
+
+// Create 2 test products
+const pA = storeDelete.addProduct({
+  name: 'Vintage Silk Shirt',
+  category_name: 'Shirts & Tops',
+  current_selling_price: 1000,
+  current_cost_price: 400,
+  available_stock: 10,
+});
+
+const pB = storeDelete.addProduct({
+  name: 'Vintage Cargo Pants',
+  category_name: 'Jeans & Trousers',
+  current_selling_price: 1500,
+  current_cost_price: 600,
+  available_stock: 15,
+});
+
+// Create Bill 1: Single Product (Cash, ₹2,000, 2 units of pA)
+const b1Res = storeDelete.createBill({
+  items: [{ product_id: pA.id, quantity: 2, unit_selling_price: 1000 }],
+  payment_method: 'CASH',
+  amount_paid: 2000,
+  customer_name: 'Adil Khan',
+  customer_phone: '9847000001',
+});
+assert.equal(b1Res.success, true);
+assert.equal(pA.available_stock, 8, 'Product A stock should decrease from 10 to 8');
+
+// Create Bill 2: Multi-Product (UPI, ₹4,000: 1 of pA, 2 of pB)
+const b2Res = storeDelete.createBill({
+  items: [
+    { product_id: pA.id, quantity: 1, unit_selling_price: 1000 },
+    { product_id: pB.id, quantity: 2, unit_selling_price: 1500 },
+  ],
+  payment_method: 'UPI',
+  amount_paid: 4000,
+  customer_name: 'Priya Nair',
+  customer_phone: '9847000002',
+});
+assert.equal(b2Res.success, true);
+assert.equal(pA.available_stock, 7, 'Product A stock should decrease to 7');
+assert.equal(pB.available_stock, 13, 'Product B stock should decrease to 13');
+
+// Check metrics before deletion
+let metrics = storeDelete.getMetrics();
+assert.equal(metrics.total_sales, 6000);
+assert.equal(metrics.completed_bills, 2);
+assert.equal(metrics.today_cash, 2000);
+assert.equal(metrics.today_upi, 4000);
+
+// Scenario A: Delete Multi-Product Bill (Bill 2)
+const delB2 = storeDelete.deleteBill(b2Res.bill.id);
+assert.equal(delB2.success, true);
+assert.equal(pA.available_stock, 8, 'Product A stock should be restored by 1 to 8');
+assert.equal(pB.available_stock, 15, 'Product B stock should be restored by 2 to 15');
+
+// Metrics must automatically recalculate
+metrics = storeDelete.getMetrics();
+assert.equal(metrics.total_sales, 2000, "Today's sales should subtract deleted bill amount");
+assert.equal(metrics.completed_bills, 1, 'Completed bills should decrease by 1');
+assert.equal(metrics.today_cash, 2000, 'Cash received should remain untouched');
+assert.equal(metrics.today_upi, 0, 'UPI received should subtract ₹4,000 to 0');
+assert.equal(storeDelete.bills.length, 1, 'Deleted bill removed from history');
+
+// Scenario B: Test prevention of double stock restoration on already cancelled bill
+const b3Res = storeDelete.createBill({
+  items: [{ product_id: pA.id, quantity: 3, unit_selling_price: 1000 }],
+  payment_method: 'CARD',
+  amount_paid: 3000,
+});
+assert.equal(pA.available_stock, 5);
+storeDelete.cancelBill(b3Res.bill.id, 'Customer return');
+assert.equal(pA.available_stock, 8, 'Stock restored once on cancellation');
+
+// Now delete the cancelled bill record
+storeDelete.deleteBill(b3Res.bill.id);
+assert.equal(pA.available_stock, 8, 'Stock must NEVER be restored a second time!');
+console.log('✅ Bill deletion, multi-product stock restoration, and dashboard metric recalculation PASSED.\n');
+
+// -------------------------------------------------------------------
+// TEST 11: CUSTOMER DIRECTORY & SAFE CUSTOMER RECORD DELETION
+// -------------------------------------------------------------------
+console.log('TEST 11: Customer Directory & Safe Customer Deletion');
+const custs = storeDelete.getCustomers();
+assert.equal(custs.length, 1);
+assert.equal(custs[0].name, 'Adil Khan');
+assert.equal(custs[0].phone, '9847000001');
+
+// Delete customer Adil Khan
+const delCust = storeDelete.deleteCustomer('9847000001', 'Adil Khan');
+assert.equal(delCust.success, true);
+
+// Verify customer personal info removed from bill without breaking accounting record
+assert.equal(storeDelete.bills[0].customer_name, 'Walk-in Customer');
+assert.equal(storeDelete.bills[0].customer_phone, undefined);
+assert.equal(storeDelete.bills[0].grand_total, 2000, 'Accounting total remains intact');
+console.log('✅ Customer directory aggregation and safe customer PII deletion PASSED.\n');
+
+// -------------------------------------------------------------------
+// TEST 12: PRODUCT DELETION & STOCK MOVEMENT HISTORY DELETION
+// -------------------------------------------------------------------
+console.log('TEST 12: Safe Product Deletion & History Management');
+
+// Product with existing bill: must safely archive to protect historical receipts
+const delPA = storeDelete.deleteProduct(pA.id);
+assert.equal(delPA.action, 'ARCHIVED');
+assert.equal(pA.is_active, false);
+
+// Product with NO bills: delete permanently
+const pUnused = storeDelete.addProduct({
+  name: 'Unused Hat',
+  current_selling_price: 500,
+  current_cost_price: 200,
+  available_stock: 5,
+});
+const delUnused = storeDelete.deleteProduct(pUnused.id);
+assert.equal(delUnused.action, 'DELETED');
+assert.equal(storeDelete.products.some((p) => p.id === pUnused.id), false);
+
+// Delete individual stock movement
+const movCountBefore = storeDelete.movements.length;
+const delMov = storeDelete.deleteStockMovement(storeDelete.movements[0].id);
+assert.equal(delMov.success, true);
+assert.equal(storeDelete.movements.length, movCountBefore - 1);
+console.log('✅ Safe product deletion and individual history management PASSED.\n');
+
 console.log('============================================================');
-console.log('ALL 9 VERIFICATION TEST SUITES PASSED PERFECTLY!');
+console.log('ALL 12 VERIFICATION TEST SUITES PASSED PERFECTLY!');
 console.log('============================================================\n');

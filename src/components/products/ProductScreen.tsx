@@ -21,13 +21,18 @@ const PREDEFINED_CATEGORIES = [
 ];
 
 export const ProductScreen: React.FC = () => {
-  const { products, categories, addProduct, updateProduct, adjustStock, refreshData } = useStore();
+  const { products, categories, addProduct, updateProduct, deleteProduct, adjustStock, refreshData } = useStore();
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
 
   // Add / Edit Product Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // Product Delete Modal
+  const [deletingProd, setDeletingProd] = useState<Product | null>(null);
+  const [isDeletingProd, setIsDeletingProd] = useState(false);
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
 
   // Form Fields
   const [name, setName] = useState('');
@@ -160,10 +165,23 @@ export const ProductScreen: React.FC = () => {
     }
   };
 
-  // Safe delete (archive)
-  const handleDeleteProduct = async (p: Product) => {
-    if (confirm(`Remove "${p.name}" from active products? Historical bills will be safely kept.`)) {
-      await updateProduct(p.id, { is_active: false });
+  // Safe delete handler with confirmation modal
+  const handleDeleteProduct = (p: Product) => {
+    setDeletingProd(p);
+  };
+
+  const handleConfirmDeleteProduct = async () => {
+    if (!deletingProd) return;
+    setIsDeletingProd(true);
+    const res = await deleteProduct(deletingProd.id);
+    setIsDeletingProd(false);
+
+    if (res.success) {
+      setDeletingProd(null);
+      setDeleteNotice(res.message);
+      setTimeout(() => setDeleteNotice(null), 4000);
+    } else {
+      alert(res.message || 'Failed to delete product');
     }
   };
 
@@ -223,6 +241,19 @@ export const ProductScreen: React.FC = () => {
 
   return (
     <div className="space-y-4 pb-20 md:pb-6">
+      {/* Action Notification Banner */}
+      {deleteNotice && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl flex items-center justify-between text-xs font-bold animate-in fade-in">
+          <div className="flex items-center space-x-2">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{deleteNotice}</span>
+          </div>
+          <button onClick={() => setDeleteNotice(null)} className="text-emerald-600 hover:text-emerald-800">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Header & Add Button */}
       <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -677,6 +708,66 @@ export const ProductScreen: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Product Delete Confirmation Modal */}
+      {deletingProd && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="bg-rose-600 text-white p-4 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-sm tracking-tight">Delete Product</h3>
+                <p className="text-[11px] text-rose-100">{deletingProd.name}</p>
+              </div>
+              <button
+                onClick={() => setDeletingProd(null)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-rose-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 text-xs">
+              <p className="text-slate-700 leading-relaxed font-medium">
+                Are you sure you want to delete <span className="font-bold text-slate-900">"{deletingProd.name}"</span> ({deletingProd.sku})?
+              </p>
+
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-[11px] space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Available Stock:</span>
+                  <span className="font-bold text-slate-800">{deletingProd.available_stock} units</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Selling Price:</span>
+                  <span className="font-bold text-slate-800">{formatCurrency(deletingProd.current_selling_price, false)}</span>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded-xl text-[11px] leading-relaxed">
+                If this product was sold in previous bills, it will be safely archived from the active catalog so historical receipts and financial reports are protected.
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingProd(null)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingProd}
+                  onClick={handleConfirmDeleteProduct}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isDeletingProd ? 'Deleting...' : 'Confirm Delete'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

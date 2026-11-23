@@ -2,14 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { 
   Boxes, Plus, History, AlertTriangle, 
-  Search, X, ChevronDown 
+  Search, X, ChevronDown, Trash2
 } from 'lucide-react';
 import { formatCurrency, formatKolkataDateTime } from '../../lib/formatters';
 import { storeService } from '../../services/storeService';
 import { Product, StockMovement } from '../../types';
 
 export const InventoryScreen: React.FC = () => {
-  const { products, categories, adjustStock, addStockPurchase, refreshData } = useStore();
+  const { products, categories, adjustStock, addStockPurchase, deleteStockMovement, refreshData } = useStore();
   const [activeView, setActiveView] = useState<'stock' | 'movements'>('stock');
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState<string>('ALL');
@@ -411,6 +411,7 @@ export const InventoryScreen: React.FC = () => {
                   <th className="py-2.5 px-3 text-right">Change</th>
                   <th className="py-2.5 px-3 text-right">New Stock</th>
                   <th className="py-2.5 px-3">Reason / Ref</th>
+                  <th className="py-2.5 px-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -440,13 +441,27 @@ export const InventoryScreen: React.FC = () => {
                       <td className="py-2 px-3 text-slate-500 text-[11px] truncate max-w-xs">
                         {m.reason || m.reference_type || '—'}
                       </td>
+                      <td className="py-2 px-3 text-center">
+                        <button
+                          onClick={async () => {
+                            if (confirm(`Delete this stock adjustment record for "${m.product_name || 'Item'}"?`)) {
+                              await deleteStockMovement(m.id);
+                              setMovements((prev) => prev.filter((item) => item.id !== m.id));
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                          title="Delete adjustment history entry"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
 
                 {movements.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       No stock movements recorded yet.
                     </td>
                   </tr>
