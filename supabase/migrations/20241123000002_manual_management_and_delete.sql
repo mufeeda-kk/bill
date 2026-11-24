@@ -1,14 +1,31 @@
 -- ===================================================================
--- VINTAGE CLOTHING STORE - COMPLETE MANUAL DATA MANAGEMENT & DELETE RPCs
--- Adds atomic operations for:
--- 1. delete_bill_atomic (Restores sold stock to batches/products, removes payments, deletes bill)
--- 2. delete_customer_atomic (Safely removes customer PII without breaking accounting records)
--- 3. delete_product_atomic (Deletes unused products or archives products with history safely)
--- 4. delete_stock_movement_atomic (Removes individual stock adjustment history entries)
--- Explicitly notifies PostgREST schema cache reload (NOTIFY pgrst, 'reload schema')
+-- VINTAGE CLOTHING STORE - SECURE MANUAL DATA MANAGEMENT & DELETE RPCs
+-- 1. Cleans and drops any unnecessary unrestricted public RLS delete policies
+-- 2. Fully secures delete_bill_atomic, delete_customer_atomic, delete_product_atomic
+--    using SECURITY DEFINER and SET search_path = public
+-- 3. Restores exact sold stock quantities to stock_batches (FIFO) and products
+-- 4. Atomically deletes bill, bill items, batch allocations, returns, and payments
+-- 5. Does NOT delete or modify any existing shop data
+-- 6. Strictly adheres to actual project schema column names & check constraints
+-- 7. Explicitly notifies PostgREST to reload schema cache
 -- ===================================================================
 
--- Clean any existing conflicting signatures first
+-- -------------------------------------------------------------------
+-- 1. DROP ANY UNNECESSARY UNRESTRICTED PUBLIC RLS POLICIES
+-- Ensures table-level direct deletions cannot bypass business logic or stock restoration
+-- -------------------------------------------------------------------
+DROP POLICY IF EXISTS "Public Delete Bills" ON public.bills;
+DROP POLICY IF EXISTS "Public Delete Bill Items" ON public.bill_items;
+DROP POLICY IF EXISTS "Public Delete Batch Allocations" ON public.bill_item_batch_allocations;
+DROP POLICY IF EXISTS "Public Delete Payments" ON public.payments;
+DROP POLICY IF EXISTS "Public Delete Returns" ON public.returns;
+DROP POLICY IF EXISTS "Public Delete Return Items" ON public.return_items;
+DROP POLICY IF EXISTS "Public Update Stock Batches" ON public.stock_batches;
+DROP POLICY IF EXISTS "Public Insert Stock Movements" ON public.stock_movements;
+DROP POLICY IF EXISTS "Public Delete Stock Movements" ON public.stock_movements;
+DROP POLICY IF EXISTS "Public Delete Products" ON public.products;
+
+-- Clean existing conflicting function signatures
 DROP FUNCTION IF EXISTS public.delete_bill_atomic(UUID, TEXT);
 DROP FUNCTION IF EXISTS public.delete_bill_atomic(TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.delete_bill_atomic(UUID);
@@ -24,7 +41,7 @@ DROP FUNCTION IF EXISTS public.delete_stock_movement_atomic(UUID);
 DROP FUNCTION IF EXISTS public.delete_stock_movement_atomic(TEXT);
 
 -- -------------------------------------------------------------------
--- 1. ATOMIC BILL DELETION WITH INVENTORY RESTORATION (UUID SIGNATURE)
+-- 2. ATOMIC BILL DELETION WITH INVENTORY RESTORATION (UUID SIGNATURE)
 -- -------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.delete_bill_atomic(
     p_bill_id UUID,
@@ -53,7 +70,7 @@ BEGIN
         END;
     END IF;
 
-    -- Lock bill for update in single transaction
+    -- Lock bill row for update in this single transaction
     SELECT * INTO v_bill FROM public.bills WHERE id = p_bill_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'message', 'Bill not found or already deleted');
@@ -73,26 +90,24 @@ BEGIN
                 v_had_allocations := true;
                 UPDATE public.stock_batches
                 SET remaining_quantity = remaining_quantity + v_allocation.quantity,
-                    is_depleted = false,
-                    updated_at = timezone('Asia/Kolkata'::text, now())
+                    is_depleted = false
                 WHERE id = v_allocation.batch_id;
             END LOOP;
 
-            -- Fallback batch restoration if no allocation records existed
+            -- Fallback batch restoration if no individual allocation records existed
             IF NOT v_had_allocations THEN
                 UPDATE public.stock_batches
                 SET remaining_quantity = remaining_quantity + v_item.quantity,
-                    is_depleted = false,
-                    updated_at = timezone('Asia/Kolkata'::text, now())
+                    is_depleted = false
                 WHERE id = (
                     SELECT id FROM public.stock_batches 
                     WHERE product_id = v_item.product_id 
-                    ORDER BY purchase_date DESC, created_at DESC 
+                    ORDER BY received_date DESC, created_at DESC 
                     LIMIT 1
                 );
             END IF;
 
-            -- Restore product available stock
+            -- Restore product available stock in products catalog
             IF v_product.id IS NOT NULL THEN
                 UPDATE public.products
                 SET available_stock = available_stock + v_item.quantity,
@@ -100,7 +115,7 @@ BEGIN
                 WHERE id = v_item.product_id;
 
                 -- Record stock restoration in stock_movements audit trail
-                -- Uses CANCEL_IN and BILL to strictly satisfy CHECK constraints
+                -- Strictly satisfies movement_type ('CANCEL_IN') and reference_type ('BILL') check constraints
                 INSERT INTO public.stock_movements (
                     product_id, movement_type, quantity_change, previous_quantity,
                     new_quantity, unit_cost, reference_type, reference_id,
@@ -116,17 +131,17 @@ BEGIN
         END LOOP;
     END IF;
 
-    -- Remove dependent records cleanly
+    -- Cascade delete dependent transactional records cleanly
     DELETE FROM public.return_items WHERE return_id IN (SELECT id FROM public.returns WHERE bill_id = p_bill_id);
     DELETE FROM public.returns WHERE bill_id = p_bill_id;
     DELETE FROM public.bill_item_batch_allocations WHERE bill_item_id IN (SELECT id FROM public.bill_items WHERE bill_id = p_bill_id);
     DELETE FROM public.bill_items WHERE bill_id = p_bill_id;
     DELETE FROM public.payments WHERE bill_id = p_bill_id;
 
-    -- Delete bill record
+    -- Delete the bill itself
     DELETE FROM public.bills WHERE id = p_bill_id;
 
-    -- Log deletion in audit_logs
+    -- Log bill deletion in audit_logs
     INSERT INTO public.audit_logs (
         action, entity, entity_id, details, device_id
     ) VALUES (
@@ -149,7 +164,7 @@ BEGIN
 END;
 $$;
 
--- Overload for string/text bill_id to guarantee schema cache compatibility
+-- Overload for text/string bill_id parameter to guarantee client & PostgREST type compatibility
 CREATE OR REPLACE FUNCTION public.delete_bill_atomic(
     p_bill_id TEXT,
     p_device_id TEXT DEFAULT NULL
@@ -166,13 +181,13 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
--- Permissions for delete_bill_atomic
+-- Grant execution permissions
 GRANT EXECUTE ON FUNCTION public.delete_bill_atomic(UUID, TEXT) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_bill_atomic(TEXT, TEXT) TO anon, authenticated, service_role;
 
 
 -- -------------------------------------------------------------------
--- 2. ATOMIC CUSTOMER DELETION (Safely clears PII without breaking billing foreign keys)
+-- 3. ATOMIC CUSTOMER DELETION (Safely clears PII without breaking billing history)
 -- -------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.delete_customer_atomic(
     p_phone TEXT DEFAULT NULL,
@@ -202,7 +217,7 @@ BEGIN
         GET DIAGNOSTICS v_updated_bills = ROW_COUNT;
     END IF;
 
-    -- Optional customer tables
+    -- Remove from optional customers table if present
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'customers') THEN
         IF p_phone IS NOT NULL AND p_phone <> '' THEN
             EXECUTE 'DELETE FROM public.customers WHERE phone = $1' USING p_phone;
@@ -213,7 +228,7 @@ BEGIN
 
     RETURN jsonb_build_object(
         'success', true, 
-        'message', 'Customer information removed safely.',
+        'message', 'Customer personal information removed safely.',
         'bills_anonymized', v_updated_bills
     );
 END;
@@ -223,7 +238,7 @@ GRANT EXECUTE ON FUNCTION public.delete_customer_atomic(TEXT, TEXT) TO anon, aut
 
 
 -- -------------------------------------------------------------------
--- 3. ATOMIC PRODUCT DELETION (UUID & TEXT OVERLOAD)
+-- 4. ATOMIC PRODUCT DELETION (UUID & TEXT OVERLOAD)
 -- -------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.delete_product_atomic(
     p_product_id UUID
@@ -239,7 +254,7 @@ BEGIN
     SELECT COUNT(*) INTO v_bill_count FROM public.bill_items WHERE product_id = p_product_id;
     
     IF v_bill_count > 0 THEN
-        -- Product has transaction history: archive safely to protect previous sales records
+        -- Product has sales history: archive safely to preserve historical invoices
         UPDATE public.products 
         SET is_active = false,
             available_stock = 0,
@@ -253,6 +268,7 @@ BEGIN
         );
     ELSE
         -- No transaction records: delete permanently
+        DELETE FROM public.bill_item_batch_allocations WHERE batch_id IN (SELECT id FROM public.stock_batches WHERE product_id = p_product_id);
         DELETE FROM public.stock_batches WHERE product_id = p_product_id;
         DELETE FROM public.stock_purchase_items WHERE product_id = p_product_id;
         DELETE FROM public.stock_movements WHERE product_id = p_product_id;
@@ -287,7 +303,7 @@ GRANT EXECUTE ON FUNCTION public.delete_product_atomic(TEXT) TO anon, authentica
 
 
 -- -------------------------------------------------------------------
--- 4. ATOMIC STOCK MOVEMENT RECORD DELETION (UUID & TEXT OVERLOAD)
+-- 5. ATOMIC STOCK MOVEMENT RECORD DELETION (UUID & TEXT OVERLOAD)
 -- -------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.delete_stock_movement_atomic(
     p_movement_id UUID
@@ -323,43 +339,7 @@ GRANT EXECUTE ON FUNCTION public.delete_stock_movement_atomic(TEXT) TO anon, aut
 
 
 -- -------------------------------------------------------------------
--- 5. RLS WRITE & DELETE POLICIES (Enables safe cascading deletions & batch updates)
--- -------------------------------------------------------------------
-DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Bills' AND tablename = 'bills') THEN
-        CREATE POLICY "Public Delete Bills" ON public.bills FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Bill Items' AND tablename = 'bill_items') THEN
-        CREATE POLICY "Public Delete Bill Items" ON public.bill_items FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Batch Allocations' AND tablename = 'bill_item_batch_allocations') THEN
-        CREATE POLICY "Public Delete Batch Allocations" ON public.bill_item_batch_allocations FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Payments' AND tablename = 'payments') THEN
-        CREATE POLICY "Public Delete Payments" ON public.payments FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Returns' AND tablename = 'returns') THEN
-        CREATE POLICY "Public Delete Returns" ON public.returns FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Return Items' AND tablename = 'return_items') THEN
-        CREATE POLICY "Public Delete Return Items" ON public.return_items FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Update Stock Batches' AND tablename = 'stock_batches') THEN
-        CREATE POLICY "Public Update Stock Batches" ON public.stock_batches FOR UPDATE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Insert Stock Movements' AND tablename = 'stock_movements') THEN
-        CREATE POLICY "Public Insert Stock Movements" ON public.stock_movements FOR INSERT WITH CHECK (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Stock Movements' AND tablename = 'stock_movements') THEN
-        CREATE POLICY "Public Delete Stock Movements" ON public.stock_movements FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Products' AND tablename = 'products') THEN
-        CREATE POLICY "Public Delete Products" ON public.products FOR DELETE USING (true);
-    END IF;
-END $$;
-
-
--- -------------------------------------------------------------------
 -- 6. REFRESH SUPABASE POSTGREST SCHEMA CACHE
+-- Forces PostgREST to immediately discover the RPC functions
 -- -------------------------------------------------------------------
 NOTIFY pgrst, 'reload schema';

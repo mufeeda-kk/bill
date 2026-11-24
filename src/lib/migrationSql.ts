@@ -1,5 +1,21 @@
 // Central Supabase SQL Migration for Manual Data Management & Atomic Bill Deletion
-export const MANUAL_MANAGEMENT_SQL = `-- VINTAGE CLOTHING STORE: MANUAL DATA MANAGEMENT & DELETE RPCs
+export const MANUAL_MANAGEMENT_SQL = `-- ===================================================================
+-- VINTAGE CLOTHING STORE - SECURE MANUAL DATA MANAGEMENT & DELETE RPCs
+-- ===================================================================
+
+-- 1. DROP UNNECESSARY UNRESTRICTED PUBLIC RLS POLICIES
+DROP POLICY IF EXISTS "Public Delete Bills" ON public.bills;
+DROP POLICY IF EXISTS "Public Delete Bill Items" ON public.bill_items;
+DROP POLICY IF EXISTS "Public Delete Batch Allocations" ON public.bill_item_batch_allocations;
+DROP POLICY IF EXISTS "Public Delete Payments" ON public.payments;
+DROP POLICY IF EXISTS "Public Delete Returns" ON public.returns;
+DROP POLICY IF EXISTS "Public Delete Return Items" ON public.return_items;
+DROP POLICY IF EXISTS "Public Update Stock Batches" ON public.stock_batches;
+DROP POLICY IF EXISTS "Public Insert Stock Movements" ON public.stock_movements;
+DROP POLICY IF EXISTS "Public Delete Stock Movements" ON public.stock_movements;
+DROP POLICY IF EXISTS "Public Delete Products" ON public.products;
+
+-- Clean existing function signatures
 DROP FUNCTION IF EXISTS public.delete_bill_atomic(UUID, TEXT);
 DROP FUNCTION IF EXISTS public.delete_bill_atomic(TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.delete_customer_atomic(TEXT, TEXT);
@@ -8,6 +24,7 @@ DROP FUNCTION IF EXISTS public.delete_product_atomic(TEXT);
 DROP FUNCTION IF EXISTS public.delete_stock_movement_atomic(UUID);
 DROP FUNCTION IF EXISTS public.delete_stock_movement_atomic(TEXT);
 
+-- 2. ATOMIC BILL DELETION WITH INVENTORY RESTORATION
 CREATE OR REPLACE FUNCTION public.delete_bill_atomic(
     p_bill_id UUID,
     p_device_id TEXT DEFAULT NULL
@@ -51,20 +68,18 @@ BEGIN
                 v_had_allocations := true;
                 UPDATE public.stock_batches
                 SET remaining_quantity = remaining_quantity + v_allocation.quantity,
-                    is_depleted = false,
-                    updated_at = timezone('Asia/Kolkata'::text, now())
+                    is_depleted = false
                 WHERE id = v_allocation.batch_id;
             END LOOP;
 
             IF NOT v_had_allocations THEN
                 UPDATE public.stock_batches
                 SET remaining_quantity = remaining_quantity + v_item.quantity,
-                    is_depleted = false,
-                    updated_at = timezone('Asia/Kolkata'::text, now())
+                    is_depleted = false
                 WHERE id = (
                     SELECT id FROM public.stock_batches 
                     WHERE product_id = v_item.product_id 
-                    ORDER BY purchase_date DESC, created_at DESC 
+                    ORDER BY received_date DESC, created_at DESC 
                     LIMIT 1
                 );
             END IF;
@@ -138,39 +153,146 @@ $$;
 GRANT EXECUTE ON FUNCTION public.delete_bill_atomic(UUID, TEXT) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_bill_atomic(TEXT, TEXT) TO anon, authenticated, service_role;
 
--- RLS Write & Delete Policies
-DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Bills' AND tablename = 'bills') THEN
-        CREATE POLICY "Public Delete Bills" ON public.bills FOR DELETE USING (true);
+-- 3. ATOMIC CUSTOMER DELETION
+CREATE OR REPLACE FUNCTION public.delete_customer_atomic(
+    p_phone TEXT DEFAULT NULL,
+    p_name TEXT DEFAULT NULL
+)
+RETURNS JSONB 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_updated_bills INT := 0;
+BEGIN
+    IF p_phone IS NOT NULL AND p_phone <> '' THEN
+        UPDATE public.bills 
+        SET customer_phone = NULL,
+            customer_name = 'Walk-in Customer',
+            updated_at = timezone('Asia/Kolkata'::text, now())
+        WHERE customer_phone = p_phone;
+        GET DIAGNOSTICS v_updated_bills = ROW_COUNT;
+    ELSIF p_name IS NOT NULL AND p_name <> '' AND p_name <> 'Walk-in Customer' THEN
+        UPDATE public.bills 
+        SET customer_name = 'Walk-in Customer',
+            customer_phone = NULL,
+            updated_at = timezone('Asia/Kolkata'::text, now())
+        WHERE customer_name = p_name;
+        GET DIAGNOSTICS v_updated_bills = ROW_COUNT;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Bill Items' AND tablename = 'bill_items') THEN
-        CREATE POLICY "Public Delete Bill Items" ON public.bill_items FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Batch Allocations' AND tablename = 'bill_item_batch_allocations') THEN
-        CREATE POLICY "Public Delete Batch Allocations" ON public.bill_item_batch_allocations FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Payments' AND tablename = 'payments') THEN
-        CREATE POLICY "Public Delete Payments" ON public.payments FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Returns' AND tablename = 'returns') THEN
-        CREATE POLICY "Public Delete Returns" ON public.returns FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Return Items' AND tablename = 'return_items') THEN
-        CREATE POLICY "Public Delete Return Items" ON public.return_items FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Update Stock Batches' AND tablename = 'stock_batches') THEN
-        CREATE POLICY "Public Update Stock Batches" ON public.stock_batches FOR UPDATE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Insert Stock Movements' AND tablename = 'stock_movements') THEN
-        CREATE POLICY "Public Insert Stock Movements" ON public.stock_movements FOR INSERT WITH CHECK (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Stock Movements' AND tablename = 'stock_movements') THEN
-        CREATE POLICY "Public Delete Stock Movements" ON public.stock_movements FOR DELETE USING (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Products' AND tablename = 'products') THEN
-        CREATE POLICY "Public Delete Products" ON public.products FOR DELETE USING (true);
-    END IF;
-END $$;
 
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'customers') THEN
+        IF p_phone IS NOT NULL AND p_phone <> '' THEN
+            EXECUTE 'DELETE FROM public.customers WHERE phone = $1' USING p_phone;
+        ELSIF p_name IS NOT NULL AND p_name <> '' THEN
+            EXECUTE 'DELETE FROM public.customers WHERE name = $1' USING p_name;
+        END IF;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true, 
+        'message', 'Customer personal information removed safely.',
+        'bills_anonymized', v_updated_bills
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.delete_customer_atomic(TEXT, TEXT) TO anon, authenticated, service_role;
+
+-- 4. ATOMIC PRODUCT DELETION
+CREATE OR REPLACE FUNCTION public.delete_product_atomic(
+    p_product_id UUID
+)
+RETURNS JSONB 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_bill_count INT;
+BEGIN
+    SELECT COUNT(*) INTO v_bill_count FROM public.bill_items WHERE product_id = p_product_id;
+    
+    IF v_bill_count > 0 THEN
+        UPDATE public.products 
+        SET is_active = false,
+            available_stock = 0,
+            updated_at = timezone('Asia/Kolkata'::text, now())
+        WHERE id = p_product_id;
+
+        RETURN jsonb_build_object(
+            'success', true,
+            'action', 'ARCHIVED',
+            'message', 'Product archived and removed from active catalog to protect ' || v_bill_count || ' historical bill reference(s).'
+        );
+    ELSE
+        DELETE FROM public.bill_item_batch_allocations WHERE batch_id IN (SELECT id FROM public.stock_batches WHERE product_id = p_product_id);
+        DELETE FROM public.stock_batches WHERE product_id = p_product_id;
+        DELETE FROM public.stock_purchase_items WHERE product_id = p_product_id;
+        DELETE FROM public.stock_movements WHERE product_id = p_product_id;
+        DELETE FROM public.products WHERE id = p_product_id;
+
+        RETURN jsonb_build_object(
+            'success', true,
+            'action', 'DELETED',
+            'message', 'Product deleted permanently.'
+        );
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.delete_product_atomic(
+    p_product_id TEXT
+)
+RETURNS JSONB 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN public.delete_product_atomic(p_product_id::UUID);
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'message', 'Invalid product ID: ' || SQLERRM);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.delete_product_atomic(UUID) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_product_atomic(TEXT) TO anon, authenticated, service_role;
+
+-- 5. ATOMIC STOCK MOVEMENT RECORD DELETION
+CREATE OR REPLACE FUNCTION public.delete_stock_movement_atomic(
+    p_movement_id UUID
+)
+RETURNS JSONB 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    DELETE FROM public.stock_movements WHERE id = p_movement_id;
+    RETURN jsonb_build_object('success', true, 'message', 'Stock adjustment history record deleted.');
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.delete_stock_movement_atomic(
+    p_movement_id TEXT
+)
+RETURNS JSONB 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN public.delete_stock_movement_atomic(p_movement_id::UUID);
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'message', 'Invalid movement ID: ' || SQLERRM);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.delete_stock_movement_atomic(UUID) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_stock_movement_atomic(TEXT) TO anon, authenticated, service_role;
+
+-- 6. REFRESH SCHEMA CACHE
 NOTIFY pgrst, 'reload schema';
 `;
