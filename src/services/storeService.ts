@@ -710,138 +710,187 @@ export class StoreService {
   // --- DELETE BILL (ATOMIC INVENTORY RESTORATION, PAYMENT REMOVAL & MULTI-DEVICE SYNC) ---
   async deleteBill(billId: string, deviceId?: string): Promise<{ success: boolean; message: string; bill?: Bill }> {
     if (supabase) {
+      // 1. ATTEMPT ATOMIC DATABASE RPC FUNCTION FIRST
       try {
         const { data, error } = await supabase.rpc('delete_bill_atomic', {
           p_bill_id: billId,
           p_device_id: deviceId || null,
         });
+
         if (!error && data?.success) {
+          // Verify & clean local cache
+          const localBills = loadLocal<Bill[]>('bills', []);
+          saveLocal('bills', localBills.filter((b) => b.id !== billId));
+
           this.broadcastChange('BILL_DELETED', { billId });
           return { success: true, message: data.message };
         }
-        
-        // If error is schema cache or function missing, gracefully fallback to direct Supabase transaction
-        const isFunctionMissing = error && (
-          error.code === 'PGRST202' ||
-          error.code === '42883' ||
-          error.message?.toLowerCase().includes('schema cache') ||
-          error.message?.toLowerCase().includes('delete_bill_atomic') ||
-          error.message?.toLowerCase().includes('does not exist')
-        );
 
-        if (error && !isFunctionMissing) {
-          return { success: false, message: error.message };
+        if (error) {
+          const isFunctionMissing = (
+            error.code === 'PGRST202' ||
+            error.code === '42883' ||
+            error.message?.toLowerCase().includes('schema cache') ||
+            error.message?.toLowerCase().includes('delete_bill_atomic') ||
+            error.message?.toLowerCase().includes('does not exist')
+          );
+
+          if (!isFunctionMissing) {
+            // Real database error from RPC execution
+            console.error('RPC delete_bill_atomic error:', error);
+            return { success: false, message: `Database error: ${error.message}` };
+          }
+        } else if (data && data.success === false) {
+          return { success: false, message: data.message || 'Bill deletion failed' };
         }
       } catch (err: unknown) {
-        console.warn('RPC delete_bill_atomic fallback:', err);
+        console.warn('RPC delete_bill_atomic invocation fallback:', err);
       }
 
-      // Supabase direct fallback if RPC not deployed or cached yet
+      // 2. DIRECT TRANSACTIONAL DATABASE FALLBACK (WITH STRICT VERIFICATION)
       try {
-        const { data: billData } = await supabase
+        const { data: billData, error: fetchErr } = await supabase
           .from('bills')
           .select('*, bill_items(*)')
           .eq('id', billId)
-          .single();
+          .maybeSingle();
 
-        if (billData) {
-          if (billData.status !== 'CANCELLED') {
-            for (const item of billData.bill_items || []) {
-              // 1. Restore Stock Batches (FIFO batches)
-              const { data: allocs } = await supabase
-                .from('bill_item_batch_allocations')
-                .select('*')
-                .eq('bill_item_id', item.id);
+        if (fetchErr) {
+          console.error('Failed to fetch bill from database:', fetchErr);
+          return { success: false, message: `Database read error: ${fetchErr.message}` };
+        }
 
-              if (allocs && allocs.length > 0) {
-                for (const alloc of allocs) {
-                  const { data: b } = await supabase
-                    .from('stock_batches')
-                    .select('remaining_quantity')
-                    .eq('id', alloc.batch_id)
-                    .single();
-                  if (b) {
-                    await supabase
-                      .from('stock_batches')
-                      .update({
-                        remaining_quantity: b.remaining_quantity + alloc.quantity,
-                        is_depleted: false,
-                        updated_at: new Date().toISOString(),
-                      })
-                      .eq('id', alloc.batch_id);
-                  }
-                }
-              } else {
-                // Fallback to restore latest active batch for this product
-                const { data: latestBatches } = await supabase
+        if (!billData) {
+          return { success: false, message: 'Bill not found in central database or already deleted.' };
+        }
+
+        // Restore stock ONLY if bill was NOT already cancelled (prevents duplicate stock restoration)
+        if (billData.status !== 'CANCELLED') {
+          for (const item of billData.bill_items || []) {
+            // Restore FIFO stock_batches
+            const { data: allocs } = await supabase
+              .from('bill_item_batch_allocations')
+              .select('*')
+              .eq('bill_item_id', item.id);
+
+            if (allocs && allocs.length > 0) {
+              for (const alloc of allocs) {
+                const { data: b } = await supabase
                   .from('stock_batches')
-                  .select('id, remaining_quantity')
-                  .eq('product_id', item.product_id)
-                  .order('created_at', { ascending: false })
-                  .limit(1);
-
-                if (latestBatches && latestBatches.length > 0) {
+                  .select('remaining_quantity')
+                  .eq('id', alloc.batch_id)
+                  .single();
+                if (b) {
                   await supabase
                     .from('stock_batches')
                     .update({
-                      remaining_quantity: latestBatches[0].remaining_quantity + item.quantity,
+                      remaining_quantity: b.remaining_quantity + alloc.quantity,
                       is_depleted: false,
                       updated_at: new Date().toISOString(),
                     })
-                    .eq('id', latestBatches[0].id);
+                    .eq('id', alloc.batch_id);
                 }
               }
+            } else {
+              const { data: latestBatches } = await supabase
+                .from('stock_batches')
+                .select('id, remaining_quantity')
+                .eq('product_id', item.product_id)
+                .order('created_at', { ascending: false })
+                .limit(1);
 
-              // 2. Restore Product Available Stock
-              const { data: prod } = await supabase
-                .from('products')
-                .select('available_stock, current_cost_price')
-                .eq('id', item.product_id)
-                .single();
-
-              if (prod) {
-                const newStock = prod.available_stock + item.quantity;
+              if (latestBatches && latestBatches.length > 0) {
                 await supabase
-                  .from('products')
-                  .update({ available_stock: newStock, updated_at: new Date().toISOString() })
-                  .eq('id', item.product_id);
-
-                await supabase.from('stock_movements').insert({
-                  product_id: item.product_id,
-                  movement_type: 'CANCEL_IN',
-                  quantity_change: item.quantity,
-                  previous_quantity: prod.available_stock,
-                  new_quantity: newStock,
-                  unit_cost: item.unit_cost_price,
-                  reference_type: 'BILL',
-                  reference_id: billId,
-                  reason: `Stock restored due to deleted bill ${billData.invoice_number}`,
-                  device_id: deviceId || null,
-                });
+                  .from('stock_batches')
+                  .update({
+                    remaining_quantity: latestBatches[0].remaining_quantity + item.quantity,
+                    is_depleted: false,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('id', latestBatches[0].id);
               }
             }
-          }
 
-          // 3. Remove returns, allocations, items, payments, and bill
-          const { data: retData } = await supabase.from('returns').select('id').eq('bill_id', billId);
-          if (retData && retData.length > 0) {
-            await supabase.from('return_items').delete().in('return_id', retData.map((r: { id: string }) => r.id));
-          }
-          await supabase.from('returns').delete().eq('bill_id', billId);
+            // Restore product available_stock
+            const { data: prod } = await supabase
+              .from('products')
+              .select('available_stock, current_cost_price')
+              .eq('id', item.product_id)
+              .single();
 
-          const { data: biData } = await supabase.from('bill_items').select('id').eq('bill_id', billId);
-          if (biData && biData.length > 0) {
-            await supabase.from('bill_item_batch_allocations').delete().in('bill_item_id', biData.map((b: { id: string }) => b.id));
-          }
-          await supabase.from('bill_items').delete().eq('bill_id', billId);
-          await supabase.from('payments').delete().eq('bill_id', billId);
-          await supabase.from('bills').delete().eq('id', billId);
+            if (prod) {
+              const newStock = prod.available_stock + item.quantity;
+              const { error: prodErr } = await supabase
+                .from('products')
+                .update({ available_stock: newStock, updated_at: new Date().toISOString() })
+                .eq('id', item.product_id);
 
-          this.broadcastChange('BILL_DELETED', { billId });
-          return { success: true, message: `Bill ${billData.invoice_number} deleted and inventory restored.` };
+              if (prodErr) {
+                return { success: false, message: `Failed to restore product stock: ${prodErr.message}` };
+              }
+
+              await supabase.from('stock_movements').insert({
+                product_id: item.product_id,
+                movement_type: 'CANCEL_IN',
+                quantity_change: item.quantity,
+                previous_quantity: prod.available_stock,
+                new_quantity: newStock,
+                unit_cost: item.unit_cost_price,
+                reference_type: 'BILL',
+                reference_id: billId,
+                reason: `Stock restored due to deleted bill ${billData.invoice_number}`,
+                device_id: deviceId || null,
+              });
+            }
+          }
         }
+
+        // Delete dependencies cleanly
+        const { data: retData } = await supabase.from('returns').select('id').eq('bill_id', billId);
+        if (retData && retData.length > 0) {
+          await supabase.from('return_items').delete().in('return_id', retData.map((r: { id: string }) => r.id));
+        }
+        await supabase.from('returns').delete().eq('bill_id', billId);
+
+        const { data: biData } = await supabase.from('bill_items').select('id').eq('bill_id', billId);
+        if (biData && biData.length > 0) {
+          await supabase.from('bill_item_batch_allocations').delete().in('bill_item_id', biData.map((b: { id: string }) => b.id));
+        }
+        await supabase.from('bill_items').delete().eq('bill_id', billId);
+        await supabase.from('payments').delete().eq('bill_id', billId);
+
+        // Delete the bill record
+        const { error: delErr } = await supabase.from('bills').delete().eq('id', billId);
+        if (delErr) {
+          return { success: false, message: `Database error deleting bill: ${delErr.message}` };
+        }
+
+        // STRICT DATABASE CONFIRMATION: Verify the bill was ACTUALLY deleted from Supabase
+        const { data: stillExists } = await supabase
+          .from('bills')
+          .select('id')
+          .eq('id', billId)
+          .maybeSingle();
+
+        if (stillExists) {
+          return {
+            success: false,
+            message: 'Database security policy (RLS) prevented bill deletion. Please run the SQL migration in Supabase SQL Editor to enable atomic delete.',
+          };
+        }
+
+        // Clean local cache to match database
+        const localBills = loadLocal<Bill[]>('bills', []);
+        saveLocal('bills', localBills.filter((b) => b.id !== billId));
+
+        this.broadcastChange('BILL_DELETED', { billId });
+        return { success: true, message: `Bill ${billData.invoice_number} deleted and inventory restored.` };
       } catch (directErr: unknown) {
         console.error('Direct bill delete error:', directErr);
+        return {
+          success: false,
+          message: directErr instanceof Error ? directErr.message : 'Database operation failed during bill deletion.',
+        };
       }
     }
 

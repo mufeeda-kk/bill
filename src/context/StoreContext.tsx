@@ -525,6 +525,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteBill = async (billId: string) => {
     const res = await storeService.deleteBill(billId, currentDevice?.token);
     if (res.success) {
+      // Immediately remove from in-memory bills list for instant UI update
+      setBills((prev) => prev.filter((b) => b.id !== billId));
       await refreshData();
     }
     return res;

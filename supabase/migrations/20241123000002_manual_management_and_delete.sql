@@ -323,6 +323,43 @@ GRANT EXECUTE ON FUNCTION public.delete_stock_movement_atomic(TEXT) TO anon, aut
 
 
 -- -------------------------------------------------------------------
--- 5. REFRESH SUPABASE POSTGREST SCHEMA CACHE
+-- 5. RLS WRITE & DELETE POLICIES (Enables safe cascading deletions & batch updates)
+-- -------------------------------------------------------------------
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Bills' AND tablename = 'bills') THEN
+        CREATE POLICY "Public Delete Bills" ON public.bills FOR DELETE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Bill Items' AND tablename = 'bill_items') THEN
+        CREATE POLICY "Public Delete Bill Items" ON public.bill_items FOR DELETE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Batch Allocations' AND tablename = 'bill_item_batch_allocations') THEN
+        CREATE POLICY "Public Delete Batch Allocations" ON public.bill_item_batch_allocations FOR DELETE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Payments' AND tablename = 'payments') THEN
+        CREATE POLICY "Public Delete Payments" ON public.payments FOR DELETE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Returns' AND tablename = 'returns') THEN
+        CREATE POLICY "Public Delete Returns" ON public.returns FOR DELETE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Return Items' AND tablename = 'return_items') THEN
+        CREATE POLICY "Public Delete Return Items" ON public.return_items FOR DELETE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Update Stock Batches' AND tablename = 'stock_batches') THEN
+        CREATE POLICY "Public Update Stock Batches" ON public.stock_batches FOR UPDATE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Insert Stock Movements' AND tablename = 'stock_movements') THEN
+        CREATE POLICY "Public Insert Stock Movements" ON public.stock_movements FOR INSERT WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Stock Movements' AND tablename = 'stock_movements') THEN
+        CREATE POLICY "Public Delete Stock Movements" ON public.stock_movements FOR DELETE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete Products' AND tablename = 'products') THEN
+        CREATE POLICY "Public Delete Products" ON public.products FOR DELETE USING (true);
+    END IF;
+END $$;
+
+
+-- -------------------------------------------------------------------
+-- 6. REFRESH SUPABASE POSTGREST SCHEMA CACHE
 -- -------------------------------------------------------------------
 NOTIFY pgrst, 'reload schema';

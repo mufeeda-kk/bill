@@ -2,10 +2,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { 
   ReceiptText, Search, Share2, RotateCcw, 
-  X, AlertCircle, Eye, Trash2, Users, CheckCircle2, AlertTriangle
+  X, AlertCircle, Eye, Trash2, Users, CheckCircle2, AlertTriangle, Copy
 } from 'lucide-react';
 import { formatCurrency, formatKolkataDateTime } from '../../lib/formatters';
 import { openWhatsAppDirect } from '../../lib/whatsapp';
+import { MANUAL_MANAGEMENT_SQL } from '../../lib/migrationSql';
 import { Bill } from '../../types';
 
 interface BillHistoryScreenProps {
@@ -566,9 +567,24 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ onSelectBi
 
             <div className="p-4 space-y-3.5 text-xs">
               {deleteBillError && (
-                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center space-x-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{deleteBillError}</span>
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl space-y-2">
+                  <div className="flex items-start space-x-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span className="font-semibold text-[11px] leading-tight">{deleteBillError}</span>
+                  </div>
+                  {(deleteBillError.toLowerCase().includes('sql') || deleteBillError.toLowerCase().includes('policy') || deleteBillError.toLowerCase().includes('database')) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(MANUAL_MANAGEMENT_SQL);
+                        alert('SQL Migration copied to clipboard! Open your Supabase Dashboard -> SQL Editor, paste and click Run.');
+                      }}
+                      className="w-full py-1.5 px-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 shadow-sm transition active:scale-95"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy SQL Migration for Supabase</span>
+                    </button>
+                  )}
                 </div>
               )}
 
